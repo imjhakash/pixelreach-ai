@@ -13,6 +13,15 @@ import {
   PROMPT_VARIABLES,
 } from "@/lib/prompt-studio";
 
+const CHIP_STYLES = [
+  "border-cyan-400/30 bg-cyan-500/10 text-cyan-200 hover:border-cyan-300/60 hover:bg-cyan-400/15",
+  "border-emerald-400/30 bg-emerald-500/10 text-emerald-200 hover:border-emerald-300/60 hover:bg-emerald-400/15",
+  "border-amber-400/30 bg-amber-500/10 text-amber-200 hover:border-amber-300/60 hover:bg-amber-400/15",
+  "border-fuchsia-400/30 bg-fuchsia-500/10 text-fuchsia-200 hover:border-fuchsia-300/60 hover:bg-fuchsia-400/15",
+  "border-rose-400/30 bg-rose-500/10 text-rose-200 hover:border-rose-300/60 hover:bg-rose-400/15",
+  "border-violet-400/30 bg-violet-500/10 text-violet-200 hover:border-violet-300/60 hover:bg-violet-400/15",
+] as const;
+
 export function PromptStudioClient({
   initialPrompts,
 }: {
@@ -22,6 +31,7 @@ export function PromptStudioClient({
   const [bodyPrompt, setBodyPrompt] = useState(initialPrompts.bodyPrompt);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [activeField, setActiveField] = useState<"subject" | "body">("body");
   const subjectRef = useRef<HTMLTextAreaElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -57,6 +67,7 @@ export function PromptStudioClient({
   async function handleSave() {
     setSaving(true);
     setSaved(false);
+    setSaveError("");
 
     const res = await apiFetch("/api/prompt-studio", {
       method: "PUT",
@@ -66,8 +77,15 @@ export function PromptStudioClient({
       }),
     });
 
+    const data = await res.json().catch(() => null);
     setSaving(false);
-    if (!res.ok) return;
+    if (!res.ok) {
+      setSaveError(data?.error ?? "Failed to save Prompt Studio");
+      return;
+    }
+
+    setSubjectPrompt(data?.settings?.subject_prompt ?? subjectPrompt);
+    setBodyPrompt(data?.settings?.body_prompt ?? bodyPrompt);
 
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -114,6 +132,7 @@ export function PromptStudioClient({
               onClick={() => {
                 setSubjectPrompt(DEFAULT_SUBJECT_PROMPT);
                 setBodyPrompt(DEFAULT_BODY_PROMPT);
+                setSaveError("");
               }}
             >
               <RefreshCw className="h-4 w-4" />
@@ -133,6 +152,12 @@ export function PromptStudioClient({
               </span>
             )}
           </div>
+
+          {saveError && (
+            <div className="rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
+              {saveError}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -143,21 +168,31 @@ export function PromptStudioClient({
             Click a variable to insert it into the active prompt field. If no field is focused, it will copy to your clipboard.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {PROMPT_VARIABLES.map((variable) => (
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-2.5">
+            {PROMPT_VARIABLES.map((variable, index) => (
               <button
                 key={variable.token}
                 type="button"
                 onClick={() => insertVariable(variable.token)}
-                className="flex items-start justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-3 text-left transition-colors hover:border-[var(--accent)]/40 hover:bg-[var(--accent)]/5"
+                className={`group inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium transition-all ${CHIP_STYLES[index % CHIP_STYLES.length]}`}
+                title={variable.description}
               >
-                <div>
-                  <p className="text-sm font-medium text-[var(--foreground)]">{variable.token}</p>
-                  <p className="mt-1 text-xs text-[var(--muted)]">{variable.description}</p>
-                </div>
-                <Copy className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />
+                <span>{variable.token}</span>
+                <Copy className="h-3.5 w-3.5 shrink-0 opacity-60 transition-opacity group-hover:opacity-100" />
               </button>
+            ))}
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-2">
+            {PROMPT_VARIABLES.map((variable, index) => (
+              <div
+                key={`${variable.token}-description`}
+                className={`rounded-2xl border px-3 py-3 ${CHIP_STYLES[index % CHIP_STYLES.length]}`}
+              >
+                <p className="text-sm font-semibold">{variable.token}</p>
+                <p className="mt-1 text-xs opacity-85">{variable.description}</p>
+              </div>
             ))}
           </div>
 

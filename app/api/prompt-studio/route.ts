@@ -47,19 +47,26 @@ export async function PUT(req: NextRequest) {
     }
 
     const supabase = getServiceClient();
-    const { data, error } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from("prompt_studio_settings")
-      .upsert(
-        {
-          user_id: user.id,
-          subject_prompt: subjectPrompt,
-          body_prompt: bodyPrompt,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" }
-      )
-      .select()
-      .single();
+      .select("id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (existingError) throw existingError;
+
+    const payload = {
+      user_id: user.id,
+      subject_prompt: subjectPrompt,
+      body_prompt: bodyPrompt,
+      updated_at: new Date().toISOString(),
+    };
+
+    const query = existing?.id
+      ? supabase.from("prompt_studio_settings").update(payload).eq("id", existing.id)
+      : supabase.from("prompt_studio_settings").insert(payload);
+
+    const { data, error } = await query.select().single();
 
     if (error) throw error;
 
