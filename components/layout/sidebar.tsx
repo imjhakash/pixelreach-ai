@@ -9,6 +9,7 @@ import {
   Send,
   Building2,
   BarChart3,
+  FileText,
   Settings,
   Zap,
   LogOut,
@@ -21,6 +22,7 @@ const navItems = [
   { href: "/leads",      label: "Leads",           icon: Users },
   { href: "/campaigns",  label: "Campaigns",       icon: Send },
   { href: "/profiles",   label: "Sender Profiles", icon: Building2 },
+  { href: "/prompt-studio", label: "Prompt Studio", icon: FileText },
   { href: "/analytics",  label: "Analytics",       icon: BarChart3 },
   { href: "/settings",   label: "Settings",        icon: Settings },
 ];

@@ -112,6 +112,15 @@ export type EmailSend = {
   created_at: string;
 };
 
+export type PromptStudioSettings = {
+  id: string;
+  user_id: string;
+  subject_prompt: string;
+  body_prompt: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type DashboardStats = {
   total_sent: number;
   total_opened: number;

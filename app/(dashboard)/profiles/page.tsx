@@ -21,8 +21,8 @@ export default async function ProfilesPage() {
 
   return (
     <div>
-      <Header title="Sender Profiles" subtitle="Manage your company profiles, SMTP accounts, and AI settings" />
-      <ProfilesClient initialProfiles={profiles ?? []} initialAccounts={accounts ?? []} userId={user!.id} />
+      <Header title="Sender Profiles" subtitle="Manage your company profiles, SMTP accounts, and AI settings here" />
+      <ProfilesClient initialProfiles={profiles ?? []} initialAccounts={accounts ?? []} />
     </div>
   );
 }

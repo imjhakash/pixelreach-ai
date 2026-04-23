@@ -45,7 +45,6 @@ interface ParsedLead {
 
 interface LeadsClientProps {
   initialLists: LeadList[];
-  userId: string;
 }
 
 const FIELD_ALIASES: Record<string, string> = {
@@ -88,7 +87,7 @@ function normalizeHeader(header: string): string {
   return FIELD_ALIASES[lower] ?? lower.replace(/\s+/g, "_");
 }
 
-export function LeadsClient({ initialLists, userId }: LeadsClientProps) {
+export function LeadsClient({ initialLists }: LeadsClientProps) {
   const router = useRouter();
   const [lists, setLists] = useState<LeadList[]>(initialLists);
   const [uploading, setUploading] = useState(false);
@@ -283,7 +282,7 @@ export function LeadsClient({ initialLists, userId }: LeadsClientProps) {
           <DialogHeader>
             <DialogTitle>Import Lead List</DialogTitle>
             <DialogDescription>
-              Upload a CSV, XLSX, or JSON file. We'll auto-detect all fields.
+              Upload a CSV, XLSX, or JSON file. We&apos;ll auto-detect all fields.
             </DialogDescription>
           </DialogHeader>
 

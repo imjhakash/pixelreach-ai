@@ -14,8 +14,8 @@ export default async function LeadsPage() {
 
   return (
     <div>
-      <Header title="Leads" subtitle="Upload, organize and manage your lead lists" />
-      <LeadsClient initialLists={lists ?? []} userId={user!.id} />
+      <Header title="Leads" subtitle="Upload, organize and manage your lead lists here" />
+      <LeadsClient initialLists={lists ?? []} />
     </div>
   );
 }

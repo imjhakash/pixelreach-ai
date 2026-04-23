@@ -1,0 +1,224 @@
+import OpenAI from "openai";
+import { decrypt } from "@/lib/encrypt";
+import type { Lead, PromptStudioSettings, SenderProfile } from "@/lib/types";
+
+export const DEFAULT_SUBJECT_PROMPT =
+  "Write a short, curiosity-based cold email subject line for {{lead_name}} at {{company}}. Keep it under 8 words and avoid spammy language.";
+
+export const DEFAULT_BODY_PROMPT =
+  "Write a personalized cold email from {{sender_name}} at {{sender_company}} to {{lead_name}} at {{company}}. Mention {{job_title}} or {{location}} when useful, connect the message to their context, briefly explain how {{services}} can help, and finish with one soft CTA for a short reply or call. Keep it natural, specific, and under 170 words.";
+
+export const PROMPT_VARIABLES = [
+  { token: "{{lead_name}}", description: "Lead first and last name combined" },
+  { token: "{{first_name}}", description: "Lead first name" },
+  { token: "{{last_name}}", description: "Lead last name" },
+  { token: "{{email}}", description: "Lead email address" },
+  { token: "{{company}}", description: "Lead company name" },
+  { token: "{{job_title}}", description: "Lead role or title" },
+  { token: "{{location}}", description: "Lead location or market" },
+  { token: "{{phone}}", description: "Lead phone number" },
+  { token: "{{linkedin_url}}", description: "Lead LinkedIn URL" },
+  { token: "{{website}}", description: "Lead website URL" },
+  { token: "{{notes}}", description: "Lead notes" },
+  { token: "{{sender_company}}", description: "Your sender profile company name" },
+  { token: "{{sender_name}}", description: "Your sender profile from-name" },
+  { token: "{{services}}", description: "Your services summary" },
+  { token: "{{portfolio_url}}", description: "Your portfolio or website URL" },
+  { token: "{{reply_to}}", description: "Your reply-to email" },
+] as const;
+
+type LeadPromptInput = Pick<
+  Lead,
+  | "first_name"
+  | "last_name"
+  | "email"
+  | "phone"
+  | "company"
+  | "job_title"
+  | "location"
+  | "linkedin_url"
+  | "website"
+  | "notes"
+  | "custom_fields"
+>;
+
+type ProfilePromptInput = Pick<
+  SenderProfile,
+  | "company_name"
+  | "services"
+  | "details"
+  | "portfolio_url"
+  | "from_name"
+  | "reply_to"
+  | "openrouter_api_key_encrypted"
+  | "openrouter_model"
+  | "openrouter_fallback_model"
+  | "openrouter_temperature"
+  | "openrouter_max_tokens"
+>;
+
+function cleanValue(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.trim();
+}
+
+function normalizeVariableKey(key: string): string {
+  return key
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+export function resolvePromptDefaults(settings?: Partial<PromptStudioSettings> | null) {
+  return {
+    subjectPrompt: cleanValue(settings?.subject_prompt) || DEFAULT_SUBJECT_PROMPT,
+    bodyPrompt: cleanValue(settings?.body_prompt) || DEFAULT_BODY_PROMPT,
+  };
+}
+
+export function buildPromptVariables(lead: LeadPromptInput, profile: ProfilePromptInput) {
+  const fullName = [lead.first_name, lead.last_name].filter(Boolean).join(" ").trim();
+  const variables: Record<string, string> = {
+    lead_name: fullName || "there",
+    first_name: cleanValue(lead.first_name) || "there",
+    last_name: cleanValue(lead.last_name),
+    email: cleanValue(lead.email),
+    phone: cleanValue(lead.phone),
+    company: cleanValue(lead.company) || "your company",
+    job_title: cleanValue(lead.job_title),
+    location: cleanValue(lead.location),
+    linkedin_url: cleanValue(lead.linkedin_url),
+    website: cleanValue(lead.website),
+    notes: cleanValue(lead.notes),
+    sender_company: cleanValue(profile.company_name),
+    sender_name: cleanValue(profile.from_name),
+    services: cleanValue(profile.services) || "our services",
+    portfolio_url: cleanValue(profile.portfolio_url),
+    reply_to: cleanValue(profile.reply_to),
+  };
+
+  Object.entries(lead.custom_fields ?? {}).forEach(([rawKey, rawValue]) => {
+    const normalized = normalizeVariableKey(rawKey);
+    const value = cleanValue(rawValue);
+    if (!normalized || !value) return;
+    variables[normalized] = value;
+    variables[`custom_${normalized}`] = value;
+  });
+
+  return variables;
+}
+
+export function applyPromptTemplate(template: string, variables: Record<string, string>) {
+  return template.replace(/{{\s*([^}]+)\s*}}/g, (_, rawToken: string) => {
+    const token = normalizeVariableKey(rawToken);
+    return variables[token] ?? "";
+  });
+}
+
+export async function generateEmailContent({
+  profile,
+  lead,
+  subjectPrompt,
+  bodyPrompt,
+  appUrl,
+  tracking,
+}: {
+  profile: ProfilePromptInput;
+  lead: LeadPromptInput;
+  subjectPrompt: string;
+  bodyPrompt: string;
+  appUrl: string;
+  tracking?: {
+    clickUrl: string;
+    openPixelUrl?: string;
+  };
+}) {
+  if (!profile.openrouter_api_key_encrypted) {
+    throw new Error("No OpenRouter API key configured");
+  }
+
+  const variables = buildPromptVariables(lead, profile);
+  const renderedSubjectPrompt = applyPromptTemplate(subjectPrompt, variables);
+  const renderedBodyPrompt = applyPromptTemplate(bodyPrompt, variables);
+  const apiKey = decrypt(profile.openrouter_api_key_encrypted);
+
+  const systemPrompt = `You are an expert cold email copywriter for ${profile.company_name}.
+Company info:
+- Services: ${profile.services ?? "Web design & development"}
+- Portfolio: ${profile.portfolio_url ?? "N/A"}
+- Details: ${profile.details ?? ""}
+- From: ${profile.from_name}
+
+Write highly personalized, engaging cold emails that feel human and avoid spam triggers.
+Respond ONLY with valid JSON: {"subject": "...", "body_html": "..."}
+The body_html should be clean HTML with proper paragraphs and a natural tone.`;
+
+  const trackingInstructions = tracking
+    ? `Important:
+- If you include a CTA link, use this exact tracked URL in the href: ${tracking.clickUrl}
+- Do not expose placeholder URLs.
+${tracking.openPixelUrl ? `- Append this invisible tracking pixel before </body>: <img src="${tracking.openPixelUrl}" width="1" height="1" style="display:none" />` : ""}`
+    : `Important:
+- Use direct URLs only when they make sense for the email.
+- Do not wrap the output in markdown or code fences.`;
+
+  const leadContext = `Lead details:
+- Name: ${variables.lead_name}
+- Company: ${lead.company ?? "their company"}
+- Job Title: ${lead.job_title ?? ""}
+- Location: ${lead.location ?? ""}
+- LinkedIn: ${lead.linkedin_url ?? ""}
+- Website: ${lead.website ?? ""}
+- Custom fields: ${JSON.stringify(lead.custom_fields ?? {})}
+
+Resolved subject prompt:
+${renderedSubjectPrompt}
+
+Resolved body prompt:
+${renderedBodyPrompt}
+
+${trackingInstructions}`;
+
+  let lastError: unknown = null;
+
+  for (const model of [profile.openrouter_model, profile.openrouter_fallback_model].filter(Boolean)) {
+    try {
+      const client = new OpenAI({
+        apiKey,
+        baseURL: "https://openrouter.ai/api/v1",
+        defaultHeaders: {
+          "HTTP-Referer": appUrl,
+          "X-Title": "PixelReach AI",
+        },
+      });
+
+      const response = await client.chat.completions.create({
+        model: model!,
+        temperature: profile.openrouter_temperature,
+        max_tokens: profile.openrouter_max_tokens,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: leadContext },
+        ],
+        response_format: { type: "json_object" },
+      });
+
+      const parsed = JSON.parse(response.choices[0].message.content ?? "{}");
+      if (parsed.subject && parsed.body_html) {
+        return {
+          subject: String(parsed.subject),
+          body_html: String(parsed.body_html),
+          resolvedSubjectPrompt: renderedSubjectPrompt,
+          resolvedBodyPrompt: renderedBodyPrompt,
+        };
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw new Error(
+    lastError instanceof Error ? lastError.message : "AI generation failed for all models"
+  );
+}

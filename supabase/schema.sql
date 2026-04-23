@@ -34,6 +34,7 @@ CREATE TABLE leads (
   linkedin_url  TEXT,
   website       TEXT,
   notes         TEXT,
+  custom_fields JSONB,
   status        TEXT DEFAULT 'new' CHECK (status IN ('new','emailed','replied','bounced','unsubscribed')),
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
@@ -92,6 +93,18 @@ CREATE TABLE email_accounts (
 );
 
 CREATE INDEX idx_email_accounts_profile ON email_accounts(sender_profile_id);
+
+-- ─────────────────────────────────────────
+-- Prompt Studio
+-- ─────────────────────────────────────────
+CREATE TABLE prompt_studio_settings (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id        UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
+  subject_prompt TEXT NOT NULL,
+  body_prompt    TEXT NOT NULL,
+  created_at     TIMESTAMPTZ DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- ─────────────────────────────────────────
 -- Campaigns
@@ -214,6 +227,7 @@ ALTER TABLE lead_lists        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE leads             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sender_profiles   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_accounts    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE prompt_studio_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE campaigns         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE follow_ups        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_sends       ENABLE ROW LEVEL SECURITY;
@@ -226,6 +240,7 @@ CREATE POLICY "own lead_lists"       ON lead_lists       FOR ALL USING (auth.uid
 CREATE POLICY "own leads"            ON leads            FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "own sender_profiles"  ON sender_profiles  FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "own email_accounts"   ON email_accounts   FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "own prompt_studio_settings" ON prompt_studio_settings FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "own campaigns"        ON campaigns        FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "own email_sends"      ON email_sends      FOR ALL USING (
   campaign_id IN (SELECT id FROM campaigns WHERE user_id = auth.uid())

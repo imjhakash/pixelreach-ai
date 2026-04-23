@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
   Send, Plus, Play, Pause, Trash2, ChevronRight,
-  Loader2, Users, MailOpen, MousePointerClick, AlertTriangle,
+  Loader2, MailOpen, MousePointerClick, AlertTriangle,
   Zap, Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -53,10 +53,12 @@ export function CampaignsClient({
   initialCampaigns,
   profiles,
   lists,
+  promptDefaults,
 }: {
   initialCampaigns: Campaign[];
   profiles: { id: string; company_name: string }[];
   lists: { id: string; name: string; total_leads: number }[];
+  promptDefaults: { subjectPrompt: string; bodyPrompt: string };
 }) {
   const [campaigns, setCampaigns] = useState(initialCampaigns);
   const [showCreate, setShowCreate] = useState(false);
@@ -65,9 +67,23 @@ export function CampaignsClient({
   const [name, setName] = useState("");
   const [profileId, setProfileId] = useState("");
   const [listId, setListId] = useState("");
-  const [subjectPrompt, setSubjectPrompt] = useState("");
-  const [bodyPrompt, setBodyPrompt] = useState("");
+  const [subjectPrompt, setSubjectPrompt] = useState(promptDefaults.subjectPrompt);
+  const [bodyPrompt, setBodyPrompt] = useState(promptDefaults.bodyPrompt);
   const [followUps, setFollowUps] = useState<FollowUpDraft[]>([]);
+
+  function resetForm() {
+    setName("");
+    setProfileId("");
+    setListId("");
+    setSubjectPrompt(promptDefaults.subjectPrompt);
+    setBodyPrompt(promptDefaults.bodyPrompt);
+    setFollowUps([]);
+  }
+
+  function openCreateDialog() {
+    resetForm();
+    setShowCreate(true);
+  }
 
   function addFollowUp() {
     setFollowUps((prev) => [
@@ -102,8 +118,7 @@ export function CampaignsClient({
       const { campaign } = await res.json();
       setCampaigns((prev) => [campaign, ...prev]);
       setShowCreate(false);
-      setName(""); setProfileId(""); setListId("");
-      setSubjectPrompt(""); setBodyPrompt(""); setFollowUps([]);
+      resetForm();
     }
     setSaving(false);
   }
@@ -126,7 +141,7 @@ export function CampaignsClient({
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <p className="text-sm text-[var(--muted)]">{campaigns.length} campaigns</p>
-        <Button onClick={() => setShowCreate(true)}>
+        <Button onClick={openCreateDialog}>
           <Plus className="h-4 w-4" />
           New Campaign
         </Button>
@@ -134,7 +149,7 @@ export function CampaignsClient({
 
       {campaigns.length === 0 ? (
         <div
-          onClick={() => setShowCreate(true)}
+          onClick={openCreateDialog}
           className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-[var(--border)] py-20 cursor-pointer hover:border-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors group"
         >
           <Send className="h-10 w-10 text-[var(--muted)] group-hover:text-[var(--accent)] mb-3 transition-colors" />
@@ -279,10 +294,25 @@ export function CampaignsClient({
                 <p className="font-semibold text-[var(--foreground)] mb-1 flex items-center gap-1.5">
                   <Zap className="h-3.5 w-3.5 text-[var(--accent)]" /> How AI uses your prompt
                 </p>
-                The AI will receive the lead's full profile (name, company, location, job title, LinkedIn, etc.)
+                The AI will receive the lead&apos;s full profile (name, company, location, job title, LinkedIn, etc.)
                 alongside your prompt. Every email will be unique and hyper-personalized. Use placeholders like
                 <code className="bg-[var(--surface)] px-1 rounded mx-0.5">{"{{lead_name}}"}</code>,
                 <code className="bg-[var(--surface)] px-1 rounded mx-0.5">{"{{company}}"}</code> as hints in your prompt.
+                Default prompts come from <Link href="/prompt-studio" className="text-[var(--accent)] underline underline-offset-2">Prompt Studio</Link>.
+              </div>
+
+              <div className="flex justify-end">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setSubjectPrompt(promptDefaults.subjectPrompt);
+                    setBodyPrompt(promptDefaults.bodyPrompt);
+                  }}
+                >
+                  <Zap className="h-3.5 w-3.5" />
+                  Use Prompt Studio Defaults
+                </Button>
               </div>
 
               <div className="space-y-1.5">
@@ -308,7 +338,7 @@ export function CampaignsClient({
 
             <TabsContent value="followups" className="space-y-4">
               <p className="text-sm text-[var(--muted)]">
-                Follow-ups are sent automatically if a lead hasn't replied after the specified delay.
+                Follow-ups are sent automatically if a lead hasn&apos;t replied after the specified delay.
               </p>
 
               {followUps.map((fu, i) => (
@@ -366,7 +396,7 @@ export function CampaignsClient({
           </Tabs>
 
           <DialogFooter>
-            <Button variant="secondary" onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button variant="secondary" onClick={() => { setShowCreate(false); resetForm(); }}>Cancel</Button>
             <Button
               onClick={handleCreate}
               disabled={saving || !name || !profileId || !listId || !subjectPrompt || !bodyPrompt}

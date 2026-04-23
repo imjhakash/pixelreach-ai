@@ -4,7 +4,7 @@ import { useState } from "react";
 import {
   Building2, Plus, Mail, Server, Zap, Eye, EyeOff,
   Loader2, Trash2, RotateCcw, Settings, ExternalLink,
-  Check, X,
+  Check, X, Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,14 +24,45 @@ import { apiFetch } from "@/lib/api-fetch";
 interface ProfilesClientProps {
   initialProfiles: SenderProfile[];
   initialAccounts: EmailAccount[];
-  userId: string;
 }
 
-export function ProfilesClient({ initialProfiles, initialAccounts, userId }: ProfilesClientProps) {
+const PROFILE_DEFAULTS = {
+  company_name: "",
+  company_address: "",
+  services: "",
+  portfolio_url: "",
+  details: "",
+  from_name: "",
+  reply_to: "",
+  daily_limit: 50,
+  delay_seconds: 60,
+  openrouter_api_key: "",
+  openrouter_model: "anthropic/claude-sonnet-4",
+  openrouter_fallback_model: "openai/gpt-4o-mini",
+  openrouter_temperature: 0.7,
+  openrouter_max_tokens: 600,
+};
+
+const ACCOUNT_DEFAULTS = {
+  label: "",
+  from_email: "",
+  smtp_host: "",
+  smtp_port: 587,
+  smtp_user: "",
+  smtp_pass: "",
+  imap_host: "",
+  imap_port: 993,
+  imap_user: "",
+  imap_pass: "",
+  imap_enabled: false,
+};
+
+export function ProfilesClient({ initialProfiles, initialAccounts }: ProfilesClientProps) {
   const [profiles, setProfiles] = useState(initialProfiles);
   const [accounts, setAccounts] = useState(initialAccounts);
   const [showProfileForm, setShowProfileForm] = useState(false);
   const [showAccountForm, setShowAccountForm] = useState(false);
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(
     initialProfiles[0]?.id ?? null
   );
@@ -39,49 +70,88 @@ export function ProfilesClient({ initialProfiles, initialAccounts, userId }: Pro
   const [testingSmtp, setTestingSmtp] = useState(false);
   const [smtpTestResult, setSmtpTestResult] = useState<"ok" | "fail" | null>(null);
   const [showPass, setShowPass] = useState(false);
+  const [clearStoredApiKey, setClearStoredApiKey] = useState(false);
 
   const selectedProfile = profiles.find((p) => p.id === selectedProfileId);
   const profileAccounts = accounts.filter((a) => a.sender_profile_id === selectedProfileId);
+  const isEditingProfile = editingProfileId !== null;
 
   // Profile form state
-  const [pf, setPf] = useState({
-    company_name: "", company_address: "", services: "",
-    portfolio_url: "", details: "", from_name: "", reply_to: "",
-    daily_limit: 50, delay_seconds: 60,
-    openrouter_api_key: "", openrouter_model: "anthropic/claude-sonnet-4",
-    openrouter_fallback_model: "openai/gpt-4o-mini",
-    openrouter_temperature: 0.7, openrouter_max_tokens: 600,
-  });
+  const [pf, setPf] = useState(PROFILE_DEFAULTS);
 
   // Account form state
-  const [af, setAf] = useState({
-    label: "", from_email: "",
-    smtp_host: "", smtp_port: 587, smtp_user: "", smtp_pass: "",
-    imap_host: "", imap_port: 993, imap_user: "", imap_pass: "",
-    imap_enabled: false,
-  });
+  const [af, setAf] = useState(ACCOUNT_DEFAULTS);
+
+  function resetProfileForm() {
+    setPf(PROFILE_DEFAULTS);
+    setEditingProfileId(null);
+    setClearStoredApiKey(false);
+    setShowPass(false);
+  }
+
+  function openCreateProfile() {
+    resetProfileForm();
+    setShowProfileForm(true);
+  }
+
+  function openEditProfile(profile: SenderProfile) {
+    setEditingProfileId(profile.id);
+    setClearStoredApiKey(false);
+    setShowPass(false);
+    setPf({
+      company_name: profile.company_name,
+      company_address: profile.company_address ?? "",
+      services: profile.services ?? "",
+      portfolio_url: profile.portfolio_url ?? "",
+      details: profile.details ?? "",
+      from_name: profile.from_name,
+      reply_to: profile.reply_to ?? "",
+      daily_limit: profile.daily_limit,
+      delay_seconds: profile.delay_seconds,
+      openrouter_api_key: "",
+      openrouter_model: profile.openrouter_model,
+      openrouter_fallback_model: profile.openrouter_fallback_model ?? "openai/gpt-4o-mini",
+      openrouter_temperature: profile.openrouter_temperature,
+      openrouter_max_tokens: profile.openrouter_max_tokens,
+    });
+    setShowProfileForm(true);
+  }
 
   async function saveProfile() {
     setSaving(true);
-    const res = await apiFetch("/api/profiles", {
-      method: "POST",
-      body: JSON.stringify(pf),
+    const url = editingProfileId ? `/api/profiles/${editingProfileId}` : "/api/profiles";
+    const res = await apiFetch(url, {
+      method: editingProfileId ? "PATCH" : "POST",
+      body: JSON.stringify({
+        ...pf,
+        clear_openrouter_api_key: clearStoredApiKey,
+      }),
     });
     if (res.ok) {
       const { profile } = await res.json();
-      setProfiles((prev) => [profile, ...prev]);
+      setProfiles((prev) =>
+        editingProfileId
+          ? prev.map((item) => (item.id === profile.id ? profile : item))
+          : [profile, ...prev]
+      );
       setSelectedProfileId(profile.id);
       setShowProfileForm(false);
-      setPf({
-        company_name: "", company_address: "", services: "",
-        portfolio_url: "", details: "", from_name: "", reply_to: "",
-        daily_limit: 50, delay_seconds: 60,
-        openrouter_api_key: "", openrouter_model: "anthropic/claude-sonnet-4",
-        openrouter_fallback_model: "openai/gpt-4o-mini",
-        openrouter_temperature: 0.7, openrouter_max_tokens: 600,
-      });
+      resetProfileForm();
     }
     setSaving(false);
+  }
+
+  async function deleteProfile(id: string) {
+    const confirmed = window.confirm("Delete this sender profile and all connected email accounts?");
+    if (!confirmed) return;
+
+    const res = await apiFetch(`/api/profiles/${id}`, { method: "DELETE" });
+    if (!res.ok) return;
+
+    const remainingProfiles = profiles.filter((profile) => profile.id !== id);
+    setProfiles(remainingProfiles);
+    setAccounts((prev) => prev.filter((account) => account.sender_profile_id !== id));
+    setSelectedProfileId(remainingProfiles[0]?.id ?? null);
   }
 
   async function saveAccount() {
@@ -94,12 +164,7 @@ export function ProfilesClient({ initialProfiles, initialAccounts, userId }: Pro
       const { account } = await res.json();
       setAccounts((prev) => [...prev, account]);
       setShowAccountForm(false);
-      setAf({
-        label: "", from_email: "",
-        smtp_host: "", smtp_port: 587, smtp_user: "", smtp_pass: "",
-        imap_host: "", imap_port: 993, imap_user: "", imap_pass: "",
-        imap_enabled: false,
-      });
+      setAf(ACCOUNT_DEFAULTS);
     }
     setSaving(false);
   }
@@ -157,7 +222,7 @@ export function ProfilesClient({ initialProfiles, initialAccounts, userId }: Pro
         ))}
 
         <button
-          onClick={() => setShowProfileForm(true)}
+          onClick={openCreateProfile}
           className="w-full flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[var(--border)] p-3.5 text-sm text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
         >
           <Plus className="h-4 w-4" />
@@ -173,7 +238,27 @@ export function ProfilesClient({ initialProfiles, initialAccounts, userId }: Pro
             <p className="text-sm">Select or create a sender profile</p>
           </div>
         ) : (
-          <Tabs defaultValue="info">
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+              <div>
+                <p className="text-lg font-semibold text-[var(--foreground)]">{selectedProfile.company_name}</p>
+                <p className="text-sm text-[var(--muted)]">
+                  Manage company details, AI settings, and connected SMTP inboxes.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="secondary" onClick={() => openEditProfile(selectedProfile)}>
+                  <Pencil className="h-4 w-4" />
+                  Edit Profile
+                </Button>
+                <Button variant="danger" onClick={() => deleteProfile(selectedProfile.id)}>
+                  <Trash2 className="h-4 w-4" />
+                  Delete Profile
+                </Button>
+              </div>
+            </div>
+
+            <Tabs defaultValue="info">
             <TabsList>
               <TabsTrigger value="info">Company Info</TabsTrigger>
               <TabsTrigger value="emails">
@@ -324,16 +409,17 @@ export function ProfilesClient({ initialProfiles, initialAccounts, userId }: Pro
                     <p className="text-xs text-[var(--muted)] w-36 shrink-0">Delay Between Sends</p>
                     <p className="text-sm text-[var(--foreground)] font-semibold">{selectedProfile.delay_seconds}s</p>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <p className="text-xs text-[var(--muted)] w-36 shrink-0">Email Rotation</p>
-                    <p className="text-sm text-[var(--foreground)]">
+                <div className="flex items-center gap-3">
+                  <p className="text-xs text-[var(--muted)] w-36 shrink-0">Email Rotation</p>
+                  <p className="text-sm text-[var(--foreground)]">
                       {profileAccounts.length > 1 ? `${profileAccounts.length} accounts rotating` : "Single account"}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+            </Tabs>
+          </div>
         )}
       </div>
 
@@ -341,8 +427,12 @@ export function ProfilesClient({ initialProfiles, initialAccounts, userId }: Pro
       <Dialog open={showProfileForm} onOpenChange={setShowProfileForm}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>New Sender Profile</DialogTitle>
-            <DialogDescription>Set up your company identity and AI email generation settings.</DialogDescription>
+            <DialogTitle>{isEditingProfile ? "Edit Sender Profile" : "New Sender Profile"}</DialogTitle>
+            <DialogDescription>
+              {isEditingProfile
+                ? "Update your company profile, AI settings, and sending rules."
+                : "Set up your company identity and AI email generation settings."}
+            </DialogDescription>
           </DialogHeader>
 
           <Tabs defaultValue="company">
@@ -394,7 +484,7 @@ export function ProfilesClient({ initialProfiles, initialAccounts, userId }: Pro
                 <div className="relative">
                   <Input
                     type={showPass ? "text" : "password"}
-                    placeholder="sk-or-v1-••••••••••••••••"
+                    placeholder={isEditingProfile ? "Leave blank to keep current API key" : "sk-or-v1-••••••••••••••••"}
                     value={pf.openrouter_api_key}
                     onChange={(e) => setPf((prev) => ({ ...prev, openrouter_api_key: e.target.value }))}
                     className="pr-10"
@@ -411,6 +501,17 @@ export function ProfilesClient({ initialProfiles, initialAccounts, userId }: Pro
                   className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline">
                   Get your API key <ExternalLink className="h-3 w-3" />
                 </a>
+                {isEditingProfile && selectedProfile?.openrouter_api_key_encrypted && (
+                  <button
+                    type="button"
+                    onClick={() => setClearStoredApiKey((prev) => !prev)}
+                    className={`block text-xs transition-colors ${
+                      clearStoredApiKey ? "text-[var(--danger)]" : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    {clearStoredApiKey ? "Saved API key will be removed on save." : "Remove the saved API key on save"}
+                  </button>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -467,10 +568,18 @@ export function ProfilesClient({ initialProfiles, initialAccounts, userId }: Pro
           </Tabs>
 
           <DialogFooter>
-            <Button variant="secondary" onClick={() => setShowProfileForm(false)}>Cancel</Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setShowProfileForm(false);
+                resetProfileForm();
+              }}
+            >
+              Cancel
+            </Button>
             <Button onClick={saveProfile} disabled={saving || !pf.company_name || !pf.from_name}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4" />}
-              Save Profile
+              {isEditingProfile ? "Update Profile" : "Save Profile"}
             </Button>
           </DialogFooter>
         </DialogContent>
