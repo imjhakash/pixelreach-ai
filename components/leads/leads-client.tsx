@@ -48,15 +48,38 @@ interface LeadsClientProps {
 }
 
 const FIELD_ALIASES: Record<string, string> = {
+  // first name
   "first name": "first_name", firstname: "first_name", "given name": "first_name",
+  first_name: "first_name", fname: "first_name",
+  // last name
   "last name": "last_name", lastname: "last_name", surname: "last_name",
-  email: "email", "email address": "email",
-  phone: "phone", telephone: "phone", mobile: "phone",
+  last_name: "last_name", lname: "last_name", "family name": "last_name",
+  // email — many CRM/spreadsheet variants
+  email: "email", "email address": "email", "email_address": "email",
+  "e-mail": "email", "e_mail": "email", "e-mail address": "email",
+  mail: "email", "work email": "email", "business email": "email",
+  "contact email": "email", "primary email": "email", emailaddress: "email",
+  // phone
+  phone: "phone", telephone: "phone", mobile: "phone", tel: "phone",
+  "phone number": "phone", "mobile number": "phone", "cell": "phone",
+  cell_phone: "phone", "contact number": "phone", phonenumber: "phone",
+  // company
   company: "company", organization: "company", "company name": "company",
-  "job title": "job_title", title: "job_title", role: "job_title", position: "job_title",
+  organisation: "company", "business name": "company", employer: "company",
+  // job title
+  "job title": "job_title", title: "job_title", role: "job_title",
+  position: "job_title", "job_title": "job_title", jobtitle: "job_title",
+  "job role": "job_title", designation: "job_title", "work title": "job_title",
+  // location
   location: "location", city: "location", country: "location",
-  linkedin: "linkedin_url", "linkedin url": "linkedin_url", "linkedin profile": "linkedin_url",
+  region: "location", state: "location", area: "location", address: "location",
+  // linkedin
+  linkedin: "linkedin_url", "linkedin url": "linkedin_url",
+  "linkedin profile": "linkedin_url", "linkedin_url": "linkedin_url",
+  "linkedin link": "linkedin_url",
+  // website
   website: "website", "company website": "website", url: "website",
+  "website url": "website", "web": "website", "company url": "website",
 };
 
 function normalizeHeader(header: string): string {
