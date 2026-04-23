@@ -43,8 +43,13 @@ export async function POST(req: NextRequest) {
 
       if (!campaign || !lead) continue;
 
-      const profile = campaign.sender_profiles as Record<string, unknown> | null;
+      const senderProfiles = campaign.sender_profiles as unknown;
+      const profile = Array.isArray(senderProfiles)
+        ? (senderProfiles[0] as Record<string, unknown> | undefined) ?? null
+        : (senderProfiles as Record<string, unknown> | null);
       const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://pixelreach.ai";
+      if (!profile) continue;
+
       const result = await generateEmailContent({
         profile: profile as never,
         lead: lead as never,
