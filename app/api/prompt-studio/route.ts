@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient, getUserFromRequest } from "@/lib/supabase/api-client";
-import { DEFAULT_BODY_PROMPT, DEFAULT_SUBJECT_PROMPT } from "@/lib/prompt-studio";
+import {
+  DEFAULT_BODY_PROMPT,
+  DEFAULT_SUBJECT_PROMPT,
+  getPromptStudioSettingsFromUser,
+  pickPromptSettings,
+} from "@/lib/prompt-studio";
 
 export async function GET(req: NextRequest) {
   try {
@@ -14,12 +19,31 @@ export async function GET(req: NextRequest) {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (error) throw error;
+    const metadataSettings = getPromptStudioSettingsFromUser(user);
+
+    if (error) {
+      return NextResponse.json({
+        settings: {
+          subject_prompt:
+            pickPromptSettings(metadataSettings, {
+              subject_prompt: DEFAULT_SUBJECT_PROMPT,
+              body_prompt: DEFAULT_BODY_PROMPT,
+            }).subjectPrompt,
+          body_prompt:
+            pickPromptSettings(metadataSettings, {
+              subject_prompt: DEFAULT_SUBJECT_PROMPT,
+              body_prompt: DEFAULT_BODY_PROMPT,
+            }).bodyPrompt,
+        },
+      });
+    }
+
+    const settings = pickPromptSettings(data, metadataSettings);
 
     return NextResponse.json({
-      settings: data ?? {
-        subject_prompt: DEFAULT_SUBJECT_PROMPT,
-        body_prompt: DEFAULT_BODY_PROMPT,
+      settings: {
+        subject_prompt: settings.subjectPrompt,
+        body_prompt: settings.bodyPrompt,
       },
     });
   } catch (error) {
@@ -47,14 +71,6 @@ export async function PUT(req: NextRequest) {
     }
 
     const supabase = getServiceClient();
-    const { data: existing, error: existingError } = await supabase
-      .from("prompt_studio_settings")
-      .select("id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (existingError) throw existingError;
-
     const payload = {
       user_id: user.id,
       subject_prompt: subjectPrompt,
@@ -62,15 +78,45 @@ export async function PUT(req: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
+    const metadataResult = await supabase.auth.admin.updateUserById(user.id, {
+      user_metadata: {
+        ...(user.user_metadata ?? {}),
+        prompt_studio: {
+          subject_prompt: subjectPrompt,
+          body_prompt: bodyPrompt,
+        },
+      },
+    });
+
+    if (metadataResult.error) {
+      throw metadataResult.error;
+    }
+
+    // Mirror to the SQL table when available, but don't fail the save if that table
+    // hasn't been created yet in the deployed project.
+    const { data: existing } = await supabase
+      .from("prompt_studio_settings")
+      .select("id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
     const query = existing?.id
       ? supabase.from("prompt_studio_settings").update(payload).eq("id", existing.id)
       : supabase.from("prompt_studio_settings").insert(payload);
 
     const { data, error } = await query.select().single();
 
-    if (error) throw error;
+    if (error) {
+      return NextResponse.json({
+        settings: {
+          subject_prompt: subjectPrompt,
+          body_prompt: bodyPrompt,
+        },
+        persisted_to: "user_metadata",
+      });
+    }
 
-    return NextResponse.json({ settings: data });
+    return NextResponse.json({ settings: data, persisted_to: "user_metadata_and_table" });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to save prompt settings" },

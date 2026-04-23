@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { Header } from "@/components/layout/header";
 import { CampaignsClient } from "@/components/campaigns/campaigns-client";
-import { resolvePromptDefaults } from "@/lib/prompt-studio";
+import { getPromptStudioSettingsFromUser, pickPromptSettings } from "@/lib/prompt-studio";
 
 export default async function CampaignsPage() {
   const supabase = await createClient();
@@ -28,7 +28,7 @@ export default async function CampaignsPage() {
       .maybeSingle(),
   ]);
 
-  const promptDefaults = resolvePromptDefaults(promptSettings ?? null);
+  const promptDefaults = pickPromptSettings(promptSettings, getPromptStudioSettingsFromUser(user));
 
   return (
     <div>

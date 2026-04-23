@@ -1,3 +1,4 @@
+import type { User } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import { decrypt } from "@/lib/encrypt";
 import type { Lead, PromptStudioSettings, SenderProfile } from "@/lib/types";
@@ -57,6 +58,13 @@ type ProfilePromptInput = Pick<
   | "openrouter_max_tokens"
 >;
 
+type PromptSettingsLike =
+  | Partial<PromptStudioSettings>
+  | {
+      subject_prompt?: string | null;
+      body_prompt?: string | null;
+    };
+
 function cleanValue(value: unknown): string {
   if (typeof value !== "string") return "";
   return value.trim();
@@ -70,11 +78,37 @@ function normalizeVariableKey(key: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
-export function resolvePromptDefaults(settings?: Partial<PromptStudioSettings> | null) {
+export function resolvePromptDefaults(settings?: PromptSettingsLike | null) {
   return {
     subjectPrompt: cleanValue(settings?.subject_prompt) || DEFAULT_SUBJECT_PROMPT,
     bodyPrompt: cleanValue(settings?.body_prompt) || DEFAULT_BODY_PROMPT,
   };
+}
+
+export function getPromptStudioSettingsFromUser(user: Pick<User, "user_metadata"> | null | undefined) {
+  const promptStudio = user?.user_metadata?.prompt_studio;
+  if (!promptStudio || typeof promptStudio !== "object") return null;
+
+  const settings = promptStudio as PromptSettingsLike;
+  return {
+    subject_prompt: cleanValue(settings.subject_prompt),
+    body_prompt: cleanValue(settings.body_prompt),
+  };
+}
+
+export function pickPromptSettings(
+  primary?: PromptSettingsLike | null,
+  fallback?: PromptSettingsLike | null
+) {
+  const resolvedPrimary = resolvePromptDefaults(primary);
+  const hasPrimary =
+    cleanValue(primary?.subject_prompt) !== "" || cleanValue(primary?.body_prompt) !== "";
+
+  if (hasPrimary) {
+    return resolvedPrimary;
+  }
+
+  return resolvePromptDefaults(fallback);
 }
 
 export function buildPromptVariables(lead: LeadPromptInput, profile: ProfilePromptInput) {

@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { getServiceClient, getUserFromRequest } from "@/lib/supabase/api-client";
 import { decrypt } from "@/lib/encrypt";
-import { generateEmailContent, resolvePromptDefaults } from "@/lib/prompt-studio";
+import {
+  generateEmailContent,
+  getPromptStudioSettingsFromUser,
+  pickPromptSettings,
+} from "@/lib/prompt-studio";
 
 export async function POST(req: NextRequest) {
   try {
@@ -45,7 +49,10 @@ export async function POST(req: NextRequest) {
     if (!profile) return NextResponse.json({ error: "Sender profile not found" }, { status: 404 });
     if (!account) return NextResponse.json({ error: "Email account not found" }, { status: 404 });
 
-    const promptDefaults = resolvePromptDefaults(promptSettings ?? null);
+    const promptDefaults = pickPromptSettings(
+      promptSettings,
+      getPromptStudioSettingsFromUser(user)
+    );
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://pixelreach.ai";
     const generated = await generateEmailContent({
       profile,

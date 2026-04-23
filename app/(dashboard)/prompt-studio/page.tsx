@@ -1,7 +1,7 @@
 import { Header } from "@/components/layout/header";
 import { PromptStudioClient } from "@/components/prompt-studio/prompt-studio-client";
 import { createClient } from "@/lib/supabase/server";
-import { resolvePromptDefaults } from "@/lib/prompt-studio";
+import { getPromptStudioSettingsFromUser, pickPromptSettings } from "@/lib/prompt-studio";
 
 export default async function PromptStudioPage() {
   const supabase = await createClient();
@@ -13,13 +13,15 @@ export default async function PromptStudioPage() {
     .eq("user_id", user!.id)
     .maybeSingle();
 
+  const initialPrompts = pickPromptSettings(promptSettings, getPromptStudioSettingsFromUser(user));
+
   return (
     <div>
       <Header
         title="Prompt Studio"
         subtitle="Edit the default AI prompts used for new emails and drop in variables where needed"
       />
-      <PromptStudioClient initialPrompts={resolvePromptDefaults(promptSettings ?? null)} />
+      <PromptStudioClient initialPrompts={initialPrompts} />
     </div>
   );
 }
