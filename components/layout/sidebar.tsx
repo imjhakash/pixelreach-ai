@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 import {
   LayoutDashboard,
   Users,
   Send,
   Building2,
-  Mail,
   BarChart3,
   Settings,
   Zap,
@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
 
 const navItems = [
   { href: "/dashboard",  label: "Dashboard",      icon: LayoutDashboard },
@@ -30,6 +29,11 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
+
+  // Eagerly prefetch all nav routes on mount for instant tab switching
+  useEffect(() => {
+    navItems.forEach(({ href }) => router.prefetch(href));
+  }, [router]);
 
   async function handleLogout() {
     await supabase.auth.signOut();
@@ -57,6 +61,7 @@ export function Sidebar() {
             <Link
               key={href}
               href={href}
+              prefetch={true}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all",
                 active

@@ -1,0 +1,13 @@
+export function PageSkeleton() {
+  return (
+    <div className="p-6 space-y-4 animate-pulse">
+      <div className="h-6 w-48 rounded-lg bg-[var(--surface-2)]" />
+      <div className="h-4 w-32 rounded bg-[var(--surface-2)]" />
+      <div className="mt-6 space-y-3">
+        {[...Array(6)].map((_, i) => (
+          <div key={i} className="h-12 w-full rounded-xl bg-[var(--surface-2)]" />
+        ))}
+      </div>
+    </div>
+  );
+}

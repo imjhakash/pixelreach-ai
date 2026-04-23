@@ -12,6 +12,7 @@ export type Lead = {
   linkedin_url: string | null;
   website: string | null;
   notes: string | null;
+  custom_fields: Record<string, string> | null;
   status: "new" | "emailed" | "replied" | "bounced" | "unsubscribed";
   created_at: string;
 };

@@ -17,6 +17,7 @@ import {
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api-fetch";
 
 interface LeadList {
@@ -88,6 +89,7 @@ function normalizeHeader(header: string): string {
 }
 
 export function LeadsClient({ initialLists, userId }: LeadsClientProps) {
+  const router = useRouter();
   const [lists, setLists] = useState<LeadList[]>(initialLists);
   const [uploading, setUploading] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
@@ -178,12 +180,13 @@ export function LeadsClient({ initialLists, userId }: LeadsClientProps) {
 
     if (res.ok) {
       const { list } = await res.json();
-      setLists((prev) => [list, ...prev]);
       setShowUpload(false);
       setParsedLeads([]);
       setListName("");
       setLocationTag("");
       setFileName("");
+      // Navigate straight to the new list so the user sees their leads immediately
+      router.push(`/leads/${list.id}`);
     } else {
       const { error } = await res.json();
       setParseError(error ?? "Upload failed");

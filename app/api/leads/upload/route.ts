@@ -33,6 +33,11 @@ export async function POST(req: NextRequest) {
 
     if (listError) throw listError;
 
+    const STANDARD_KEYS = new Set([
+      "first_name", "last_name", "email", "phone", "company",
+      "job_title", "location", "linkedin_url", "website", "notes", "status",
+    ]);
+
     const CHUNK_SIZE = 100;
     for (let i = 0; i < leads.length; i += CHUNK_SIZE) {
       const chunk = leads.slice(i, i + CHUNK_SIZE).map((lead: Record<string, string>) => {
@@ -42,6 +47,14 @@ export async function POST(req: NextRequest) {
           lead.mail || lead.emailaddress || lead["Email"] || lead["Email Address"] ||
           lead["EMAIL"] || lead["E-Mail"] || lead["e-mail address"] ||
           findValueByKeyFragment(lead, "email") || "";
+
+        // Capture any non-standard CSV columns as custom_fields
+        const custom_fields: Record<string, string> = {};
+        for (const [k, v] of Object.entries(lead)) {
+          if (!STANDARD_KEYS.has(k) && v && String(v).trim()) {
+            custom_fields[k] = String(v).trim();
+          }
+        }
 
         return {
           user_id: userId,
@@ -56,6 +69,7 @@ export async function POST(req: NextRequest) {
           linkedin_url: lead.linkedin_url || lead.linkedin || null,
           website: lead.website || lead.url || null,
           notes: lead.notes || null,
+          custom_fields: Object.keys(custom_fields).length > 0 ? custom_fields : null,
           status: "new",
         };
       }).filter((l: { email: string }) => l.email);
