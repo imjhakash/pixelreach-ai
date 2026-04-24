@@ -13,6 +13,7 @@ import {
   Settings,
   Zap,
   LogOut,
+  Plug,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -24,6 +25,7 @@ const navItems = [
   { href: "/profiles",   label: "Sender Profiles", icon: Building2 },
   { href: "/prompt-studio", label: "Prompt Studio", icon: FileText },
   { href: "/analytics",  label: "Analytics",       icon: BarChart3 },
+  { href: "/mcp-tools",  label: "MCP Connect",     icon: Plug },
   { href: "/settings",   label: "Settings",        icon: Settings },
 ];
 
