@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient, getUserFromRequest } from "@/lib/supabase/api-client";
 import { encrypt } from "@/lib/encrypt";
+import { getProfileSignaturesMapFromUser, normalizeEmailSignatures } from "@/lib/prompt-studio";
 
 export async function PATCH(
   req: NextRequest,
@@ -45,7 +46,18 @@ export async function PATCH(
 
     if (error) throw error;
 
-    return NextResponse.json({ profile });
+    const signatures = normalizeEmailSignatures(body.email_signatures);
+    await supabase.auth.admin.updateUserById(user.id, {
+      user_metadata: {
+        ...(user.user_metadata ?? {}),
+        profile_signatures: {
+          ...getProfileSignaturesMapFromUser(user),
+          [profile.id]: signatures,
+        },
+      },
+    });
+
+    return NextResponse.json({ profile: { ...profile, email_signatures: signatures } });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to update profile" },
@@ -71,6 +83,15 @@ export async function DELETE(
       .eq("user_id", user.id);
 
     if (error) throw error;
+
+    const profileSignatures = { ...getProfileSignaturesMapFromUser(user) };
+    delete profileSignatures[id];
+    await supabase.auth.admin.updateUserById(user.id, {
+      user_metadata: {
+        ...(user.user_metadata ?? {}),
+        profile_signatures: profileSignatures,
+      },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { generateEmailContent } from "@/lib/prompt-studio";
+import { generateEmailContent, getProfileSignaturesFromUser } from "@/lib/prompt-studio";
 
 function verifyCron(req: NextRequest): boolean {
   const auth = req.headers.get("authorization");
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
       const [{ data: campaign }, { data: lead }] = await Promise.all([
         supabase
           .from("campaigns")
-          .select("subject_prompt, body_prompt, sender_profiles(*)")
+          .select("user_id, subject_prompt, body_prompt, sender_profiles(*)")
           .eq("id", send.campaign_id)
           .single(),
         supabase
@@ -50,8 +50,14 @@ export async function POST(req: NextRequest) {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://pixelreach.ai";
       if (!profile) continue;
 
+      const { data: profileUser } = await supabase.auth.admin.getUserById(campaign.user_id);
+      const profileWithSignatures = {
+        ...profile,
+        email_signatures: getProfileSignaturesFromUser(profileUser?.user, String(profile.id ?? "")),
+      };
+
       const result = await generateEmailContent({
-        profile: profile as never,
+        profile: profileWithSignatures as never,
         lead: lead as never,
         subjectPrompt: campaign.subject_prompt,
         bodyPrompt: campaign.body_prompt,

@@ -1,7 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { Header } from "@/components/layout/header";
 import { LeadListDetail } from "@/components/leads/lead-list-detail";
-import { getPromptStudioSettingsFromUser, pickPromptSettings } from "@/lib/prompt-studio";
+import {
+  attachSignaturesToProfiles,
+  getPromptStudioSettingsFromUser,
+  pickPromptSettings,
+} from "@/lib/prompt-studio";
 import { notFound } from "next/navigation";
 
 export default async function LeadListPage({ params }: { params: Promise<{ listId: string }> }) {
@@ -48,7 +52,7 @@ export default async function LeadListPage({ params }: { params: Promise<{ listI
       <LeadListDetail
         list={list}
         initialLeads={leads ?? []}
-        senderProfiles={senderProfiles ?? []}
+        senderProfiles={attachSignaturesToProfiles(senderProfiles, user)}
         emailAccounts={emailAccounts ?? []}
         promptDefaults={pickPromptSettings(promptSettings, getPromptStudioSettingsFromUser(user))}
       />

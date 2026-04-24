@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest, getServiceClient } from "@/lib/supabase/api-client";
 import { encrypt } from "@/lib/encrypt";
+import { getProfileSignaturesMapFromUser, normalizeEmailSignatures } from "@/lib/prompt-studio";
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,7 +15,7 @@ export async function POST(req: NextRequest) {
       company_name, company_address, services, portfolio_url, details,
       from_name, reply_to, daily_limit, delay_seconds,
       openrouter_api_key, openrouter_model, openrouter_fallback_model,
-      openrouter_temperature, openrouter_max_tokens,
+      openrouter_temperature, openrouter_max_tokens, email_signatures,
     } = body;
 
     const { data: profile, error } = await supabase
@@ -40,7 +41,21 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error) throw error;
-    return NextResponse.json({ profile });
+
+    const signatures = normalizeEmailSignatures(email_signatures);
+    if (signatures.length > 0) {
+      await supabase.auth.admin.updateUserById(user.id, {
+        user_metadata: {
+          ...(user.user_metadata ?? {}),
+          profile_signatures: {
+            ...getProfileSignaturesMapFromUser(user),
+            [profile.id]: signatures,
+          },
+        },
+      });
+    }
+
+    return NextResponse.json({ profile: { ...profile, email_signatures: signatures } });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed" },

@@ -4,7 +4,7 @@ import { useState } from "react";
 import {
   Building2, Plus, Mail, Server, Zap, Eye, EyeOff,
   Loader2, Trash2, RotateCcw, Settings, ExternalLink,
-  Check, X, Pencil,
+  Check, X, Pencil, FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
-import type { SenderProfile, EmailAccount } from "@/lib/types";
+import type { EmailAccount, EmailSignature, SenderProfile } from "@/lib/types";
 import { apiFetch } from "@/lib/api-fetch";
 
 interface ProfilesClientProps {
@@ -26,7 +26,25 @@ interface ProfilesClientProps {
   initialAccounts: EmailAccount[];
 }
 
-const PROFILE_DEFAULTS = {
+type ProfileFormState = {
+  company_name: string;
+  company_address: string;
+  services: string;
+  portfolio_url: string;
+  details: string;
+  from_name: string;
+  reply_to: string;
+  daily_limit: number;
+  delay_seconds: number;
+  openrouter_api_key: string;
+  openrouter_model: string;
+  openrouter_fallback_model: string;
+  openrouter_temperature: number;
+  openrouter_max_tokens: number;
+  email_signatures: EmailSignature[];
+};
+
+const PROFILE_DEFAULTS: ProfileFormState = {
   company_name: "",
   company_address: "",
   services: "",
@@ -41,6 +59,7 @@ const PROFILE_DEFAULTS = {
   openrouter_fallback_model: "openai/gpt-4o-mini",
   openrouter_temperature: 0.7,
   openrouter_max_tokens: 600,
+  email_signatures: [],
 };
 
 const ACCOUNT_DEFAULTS = {
@@ -113,8 +132,55 @@ export function ProfilesClient({ initialProfiles, initialAccounts }: ProfilesCli
       openrouter_fallback_model: profile.openrouter_fallback_model ?? "openai/gpt-4o-mini",
       openrouter_temperature: profile.openrouter_temperature,
       openrouter_max_tokens: profile.openrouter_max_tokens,
+      email_signatures: profile.email_signatures ?? [],
     });
     setShowProfileForm(true);
+  }
+
+  function addSignature() {
+    setPf((prev) => ({
+      ...prev,
+      email_signatures: [
+        ...prev.email_signatures,
+        {
+          id: `sig-${Date.now()}`,
+          label: `Signature ${prev.email_signatures.length + 1}`,
+          html: "",
+          plain: "",
+          is_default: prev.email_signatures.length === 0,
+        },
+      ],
+    }));
+  }
+
+  function updateSignature(id: string, updates: Partial<EmailSignature>) {
+    setPf((prev) => ({
+      ...prev,
+      email_signatures: prev.email_signatures.map((signature) =>
+        signature.id === id ? { ...signature, ...updates } : signature
+      ),
+    }));
+  }
+
+  function makeDefaultSignature(id: string) {
+    setPf((prev) => ({
+      ...prev,
+      email_signatures: prev.email_signatures.map((signature) => ({
+        ...signature,
+        is_default: signature.id === id,
+      })),
+    }));
+  }
+
+  function removeSignature(id: string) {
+    setPf((prev) => {
+      const nextSignatures = prev.email_signatures.filter((signature) => signature.id !== id);
+      if (nextSignatures.length > 0 && !nextSignatures.some((signature) => signature.is_default)) {
+        nextSignatures[0] = { ...nextSignatures[0], is_default: true };
+      }
+
+      return { ...prev, email_signatures: nextSignatures };
+    });
   }
 
   async function saveProfile() {
@@ -266,6 +332,7 @@ export function ProfilesClient({ initialProfiles, initialAccounts }: ProfilesCli
               </TabsTrigger>
               <TabsTrigger value="ai">AI Config</TabsTrigger>
               <TabsTrigger value="sending">Sending Rules</TabsTrigger>
+              <TabsTrigger value="signatures">Signatures</TabsTrigger>
             </TabsList>
 
             {/* Company Info */}
@@ -418,6 +485,38 @@ export function ProfilesClient({ initialProfiles, initialAccounts }: ProfilesCli
               </CardContent>
             </Card>
           </TabsContent>
+          <TabsContent value="signatures">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-[var(--accent)]" />
+                  <CardTitle>Email Signatures</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {(selectedProfile.email_signatures ?? []).length === 0 ? (
+                  <p className="text-sm text-[var(--muted)]">No signatures saved for this profile.</p>
+                ) : (
+                  (selectedProfile.email_signatures ?? []).map((signature) => (
+                    <div key={signature.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-[var(--foreground)]">{signature.label}</p>
+                        {signature.is_default && <Badge variant="success">default</Badge>}
+                      </div>
+                      {signature.plain && (
+                        <p className="text-xs text-[var(--muted)] whitespace-pre-wrap">{signature.plain}</p>
+                      )}
+                      {signature.html && (
+                        <code className="mt-2 block max-h-24 overflow-auto rounded bg-[var(--surface)] p-2 text-xs text-[var(--muted)]">
+                          {signature.html}
+                        </code>
+                      )}
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
             </Tabs>
           </div>
         )}
@@ -439,6 +538,7 @@ export function ProfilesClient({ initialProfiles, initialAccounts }: ProfilesCli
             <TabsList>
               <TabsTrigger value="company">Company</TabsTrigger>
               <TabsTrigger value="ai">AI & Sending</TabsTrigger>
+              <TabsTrigger value="signatures">Signatures</TabsTrigger>
             </TabsList>
 
             <TabsContent value="company" className="space-y-4 mt-4">
@@ -564,6 +664,78 @@ export function ProfilesClient({ initialProfiles, initialAccounts }: ProfilesCli
                   />
                 </div>
               </div>
+            </TabsContent>
+
+            <TabsContent value="signatures" className="space-y-4 mt-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-[var(--foreground)]">Email Signatures</p>
+                  <p className="text-xs text-[var(--muted)]">The default signature is appended to generated emails.</p>
+                </div>
+                <Button variant="secondary" size="sm" onClick={addSignature}>
+                  <Plus className="h-3.5 w-3.5" />
+                  Add Signature
+                </Button>
+              </div>
+
+              {pf.email_signatures.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-[var(--border)] py-8 text-center text-sm text-[var(--muted)]">
+                  No signatures yet.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {pf.email_signatures.map((signature, index) => (
+                    <div key={signature.id} className="rounded-lg border border-[var(--border)] p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-[var(--accent)]" />
+                          <p className="text-sm font-medium text-[var(--foreground)]">Signature {index + 1}</p>
+                          {signature.is_default && <Badge variant="success">default</Badge>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {!signature.is_default && (
+                            <Button variant="secondary" size="sm" onClick={() => makeDefaultSignature(signature.id)}>
+                              Make Default
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="icon" onClick={() => removeSignature(signature.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label>Label</Label>
+                        <Input
+                          value={signature.label}
+                          onChange={(e) => updateSignature(signature.id, { label: e.target.value })}
+                          placeholder="Founder signature"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label>HTML Signature</Label>
+                        <Textarea
+                          value={signature.html}
+                          onChange={(e) => updateSignature(signature.id, { html: e.target.value })}
+                          placeholder="<p>Best regards,<br />Akash<br /><a href='https://example.com'>Company</a></p>"
+                          className="min-h-[120px] font-mono text-xs"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label>Plain Text Signature</Label>
+                        <Textarea
+                          value={signature.plain}
+                          onChange={(e) => updateSignature(signature.id, { plain: e.target.value })}
+                          placeholder={"Best regards,\nAkash\nCompany"}
+                          className="min-h-[90px]"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </TabsContent>
           </Tabs>
 

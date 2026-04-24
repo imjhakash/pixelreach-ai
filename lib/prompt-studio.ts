@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import { decrypt } from "@/lib/encrypt";
-import type { Lead, PromptStudioSettings, SenderProfile } from "@/lib/types";
+import type { EmailSignature, Lead, PromptStudioSettings, SenderProfile } from "@/lib/types";
 
 export const DEFAULT_SUBJECT_PROMPT =
   "Write a short, curiosity-based cold email subject line for {{lead_name}} at {{company}}. Keep it under 8 words and avoid spammy language.";
@@ -45,6 +45,7 @@ type LeadPromptInput = Pick<
 
 type ProfilePromptInput = Pick<
   SenderProfile,
+  | "id"
   | "company_name"
   | "services"
   | "details"
@@ -56,7 +57,9 @@ type ProfilePromptInput = Pick<
   | "openrouter_fallback_model"
   | "openrouter_temperature"
   | "openrouter_max_tokens"
->;
+> & {
+  email_signatures?: EmailSignature[] | null;
+};
 
 type PromptSettingsLike =
   | Partial<PromptStudioSettings>
@@ -109,6 +112,93 @@ export function pickPromptSettings(
   }
 
   return resolvePromptDefaults(fallback);
+}
+
+function stripHtml(value: string) {
+  return value
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .trim();
+}
+
+export function normalizeEmailSignatures(input: unknown): EmailSignature[] {
+  if (!Array.isArray(input)) return [];
+
+  return input
+    .map((item, index) => {
+      if (!item || typeof item !== "object") return null;
+      const signature = item as Partial<EmailSignature>;
+      const html = cleanValue(signature.html);
+      const plain = cleanValue(signature.plain) || stripHtml(html);
+      const label = cleanValue(signature.label) || `Signature ${index + 1}`;
+
+      if (!html && !plain) return null;
+
+      return {
+        id: cleanValue(signature.id) || `${Date.now()}-${index}`,
+        label,
+        html,
+        plain,
+        is_default: Boolean(signature.is_default),
+      };
+    })
+    .filter((signature): signature is EmailSignature => signature !== null)
+    .map((signature, index, signatures) => ({
+      ...signature,
+      is_default: signature.is_default || (index === 0 && !signatures.some((item) => item.is_default)),
+    }));
+}
+
+export function getProfileSignaturesFromUser(
+  user: Pick<User, "user_metadata"> | null | undefined,
+  profileId: string
+) {
+  const profileSignatures = user?.user_metadata?.profile_signatures;
+  if (!profileSignatures || typeof profileSignatures !== "object") return [];
+
+  return normalizeEmailSignatures((profileSignatures as Record<string, unknown>)[profileId]);
+}
+
+export function getProfileSignaturesMapFromUser(user: Pick<User, "user_metadata"> | null | undefined) {
+  const profileSignatures = user?.user_metadata?.profile_signatures;
+  if (!profileSignatures || typeof profileSignatures !== "object") return {};
+
+  return profileSignatures as Record<string, unknown>;
+}
+
+export function attachSignaturesToProfiles<T extends { id: string }>(
+  profiles: T[] | null | undefined,
+  user: Pick<User, "user_metadata"> | null | undefined
+) {
+  return (profiles ?? []).map((profile) => ({
+    ...profile,
+    email_signatures: getProfileSignaturesFromUser(user, profile.id),
+  }));
+}
+
+function selectEmailSignature(profile: ProfilePromptInput) {
+  const signatures = normalizeEmailSignatures(profile.email_signatures);
+  return signatures.find((signature) => signature.is_default) ?? signatures[0] ?? null;
+}
+
+function appendEmailSignature(bodyHtml: string, signature: EmailSignature | null) {
+  if (!signature) return bodyHtml;
+
+  const htmlSignature = signature.html || signature.plain.replace(/\n/g, "<br />");
+  if (!htmlSignature) return bodyHtml;
+
+  const signatureHtml = `<div class="pixelreach-signature" style="margin-top:24px">${htmlSignature}</div>`;
+
+  if (bodyHtml.includes("</body>")) {
+    return bodyHtml.replace("</body>", `${signatureHtml}</body>`);
+  }
+
+  return `${bodyHtml}${signatureHtml}`;
 }
 
 export function buildPromptVariables(lead: LeadPromptInput, profile: ProfilePromptInput) {
@@ -240,9 +330,13 @@ ${trackingInstructions}`;
 
       const parsed = JSON.parse(response.choices[0].message.content ?? "{}");
       if (parsed.subject && parsed.body_html) {
+        const signature = selectEmailSignature(profile);
+        const bodyHtml = String(parsed.body_html);
+        const bodyText = [stripHtml(bodyHtml), signature?.plain].filter(Boolean).join("\n\n");
         return {
           subject: String(parsed.subject),
-          body_html: String(parsed.body_html),
+          body_html: appendEmailSignature(bodyHtml, signature),
+          body_text: bodyText,
           resolvedSubjectPrompt: renderedSubjectPrompt,
           resolvedBodyPrompt: renderedBodyPrompt,
         };

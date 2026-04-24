@@ -64,6 +64,7 @@ CREATE TABLE sender_profiles (
   openrouter_fallback_model     TEXT DEFAULT 'openai/gpt-4o-mini',
   openrouter_temperature        FLOAT DEFAULT 0.7,
   openrouter_max_tokens         INT DEFAULT 600,
+  email_signatures              JSONB,
   created_at                    TIMESTAMPTZ DEFAULT NOW()
 );
 

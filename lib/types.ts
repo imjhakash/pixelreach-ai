@@ -43,7 +43,16 @@ export type SenderProfile = {
   openrouter_fallback_model: string | null;
   openrouter_temperature: number;
   openrouter_max_tokens: number;
+  email_signatures?: EmailSignature[] | null;
   created_at: string;
+};
+
+export type EmailSignature = {
+  id: string;
+  label: string;
+  html: string;
+  plain: string;
+  is_default: boolean;
 };
 
 export type EmailAccount = {

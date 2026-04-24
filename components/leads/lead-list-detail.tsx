@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import {
   Mail, Phone, Building2, MapPin, ExternalLink, Globe,
   Search, X, ChevronDown, Tag, User, Briefcase, Link2,
-  Copy, Check, Plus, Send, Loader2, Sparkles,
+  Copy, Check, Plus, Send, Loader2, Sparkles, FileText,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -214,6 +214,7 @@ export function LeadListDetail({
   const [sendingTest, setSendingTest] = useState(false);
   const [testSendResult, setTestSendResult] = useState<{ sent_to: string; subject: string } | null>(null);
   const [testSendError, setTestSendError] = useState("");
+  const [showPromptPreview, setShowPromptPreview] = useState(false);
 
   const customVarKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -280,6 +281,7 @@ export function LeadListDetail({
     setTestAccountId(accountId);
     setTestSendError("");
     setTestSendResult(null);
+    setShowPromptPreview(false);
     setShowTestSend(true);
   }
 
@@ -734,7 +736,7 @@ export function LeadListDetail({
           <DialogHeader>
             <DialogTitle>AI Test Send</DialogTitle>
             <DialogDescription>
-              Generate one email with your Prompt Studio defaults and send it immediately through a selected SMTP inbox.
+              Generate and send one email through a selected SMTP inbox.
             </DialogDescription>
           </DialogHeader>
 
@@ -789,23 +791,50 @@ export function LeadListDetail({
               </div>
             </div>
 
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 space-y-2">
-              <p className="text-sm font-medium text-[var(--foreground)] flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-[var(--accent)]" />
-                Prompt Studio Defaults
-              </p>
-              <p className="text-xs text-[var(--muted)]">
-                Subject prompt preview:
-                <span className="block mt-1 rounded bg-[var(--surface)] px-3 py-2 text-[var(--foreground)]">
-                  {promptDefaults.subjectPrompt}
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)]">
+              <button
+                type="button"
+                onClick={() => setShowPromptPreview((value) => !value)}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Sparkles className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-[var(--foreground)]">Prompt Studio defaults</span>
+                    <span className="block truncate text-xs text-[var(--muted)]">
+                      Subject and body prompts will be applied automatically.
+                    </span>
+                  </span>
                 </span>
-              </p>
-              <p className="text-xs text-[var(--muted)]">
-                Body prompt preview:
-                <span className="block mt-1 rounded bg-[var(--surface)] px-3 py-2 text-[var(--foreground)] line-clamp-4">
-                  {promptDefaults.bodyPrompt}
+                <span className="shrink-0 text-xs font-medium text-[var(--accent)]">
+                  {showPromptPreview ? "Hide" : "Preview"}
                 </span>
-              </p>
+              </button>
+
+              {showPromptPreview && (
+                <div className="border-t border-[var(--border)] px-4 py-3">
+                  <div className="grid gap-3">
+                    <div>
+                      <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-[var(--muted)]">
+                        <FileText className="h-3.5 w-3.5" />
+                        Subject
+                      </p>
+                      <p className="max-h-16 overflow-auto rounded bg-[var(--surface)] px-3 py-2 text-xs text-[var(--foreground)]">
+                        {promptDefaults.subjectPrompt}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-[var(--muted)]">
+                        <FileText className="h-3.5 w-3.5" />
+                        Body
+                      </p>
+                      <p className="max-h-28 overflow-auto rounded bg-[var(--surface)] px-3 py-2 text-xs leading-relaxed text-[var(--foreground)]">
+                        {promptDefaults.bodyPrompt}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {!canTestSend && (

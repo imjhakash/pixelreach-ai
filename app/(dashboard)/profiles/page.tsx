@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { Header } from "@/components/layout/header";
 import { ProfilesClient } from "@/components/profiles/profiles-client";
+import { attachSignaturesToProfiles } from "@/lib/prompt-studio";
 
 export default async function ProfilesPage() {
   const supabase = await createClient();
@@ -22,7 +23,10 @@ export default async function ProfilesPage() {
   return (
     <div>
       <Header title="Sender Profiles" subtitle="Manage your company profiles, SMTP accounts, and AI settings here" />
-      <ProfilesClient initialProfiles={profiles ?? []} initialAccounts={accounts ?? []} />
+      <ProfilesClient
+        initialProfiles={attachSignaturesToProfiles(profiles, user)}
+        initialAccounts={accounts ?? []}
+      />
     </div>
   );
 }

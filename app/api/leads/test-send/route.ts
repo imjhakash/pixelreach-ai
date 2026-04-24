@@ -5,6 +5,7 @@ import { decrypt } from "@/lib/encrypt";
 import {
   generateEmailContent,
   getPromptStudioSettingsFromUser,
+  getProfileSignaturesFromUser,
   pickPromptSettings,
 } from "@/lib/prompt-studio";
 
@@ -55,7 +56,10 @@ export async function POST(req: NextRequest) {
     );
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://pixelreach.ai";
     const generated = await generateEmailContent({
-      profile,
+      profile: {
+        ...profile,
+        email_signatures: getProfileSignaturesFromUser(user, profile.id),
+      },
       lead,
       subjectPrompt: promptDefaults.subjectPrompt,
       bodyPrompt: promptDefaults.bodyPrompt,
@@ -78,6 +82,7 @@ export async function POST(req: NextRequest) {
       replyTo: profile.reply_to ?? undefined,
       subject: generated.subject,
       html: generated.body_html,
+      text: generated.body_text || undefined,
       headers: {
         "X-PixelReach-Test-Send": "true",
       },
