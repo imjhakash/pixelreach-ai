@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/jobs/generate-emails",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/jobs/process-send-queue",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/jobs/process-followups",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}

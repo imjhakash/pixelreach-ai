@@ -18,6 +18,7 @@ export async function GET(
       .single();
 
     if (send) {
+      const isFirstClick = !send.clicked_at;
       await supabase
         .from("email_sends")
         .update({
@@ -34,7 +35,9 @@ export async function GET(
         user_agent: req.headers.get("user-agent"),
       });
 
-      await supabase.rpc("increment_campaign_click", { send_id: send.id }).maybeSingle();
+      if (isFirstClick) {
+        await supabase.rpc("increment_campaign_click", { send_id: send.id }).maybeSingle();
+      }
     }
   } catch (err) {
     console.error("tracking click error:", err);

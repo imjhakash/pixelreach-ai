@@ -201,6 +201,39 @@ function appendEmailSignature(bodyHtml: string, signature: EmailSignature | null
   return `${bodyHtml}${signatureHtml}`;
 }
 
+function appendOpenPixel(bodyHtml: string, openPixelUrl?: string) {
+  if (!openPixelUrl || bodyHtml.includes(openPixelUrl)) return bodyHtml;
+
+  const pixel = `<img src="${openPixelUrl}" width="1" height="1" style="display:none" alt="" />`;
+  if (bodyHtml.includes("</body>")) {
+    return bodyHtml.replace("</body>", `${pixel}</body>`);
+  }
+
+  return `${bodyHtml}${pixel}`;
+}
+
+function wrapTrackedLinks(bodyHtml: string, clickUrl?: string) {
+  if (!clickUrl) return bodyHtml;
+
+  return bodyHtml.replace(/href=(["'])(.*?)\1/gi, (match, quote: string, rawUrl: string) => {
+    const url = rawUrl.trim();
+    const lowerUrl = url.toLowerCase();
+    if (
+      !url ||
+      lowerUrl.startsWith("mailto:") ||
+      lowerUrl.startsWith("tel:") ||
+      lowerUrl.startsWith("#") ||
+      lowerUrl.includes("/t/click/")
+    ) {
+      return match;
+    }
+
+    const absoluteUrl = /^https?:\/\//i.test(url) ? url : `https://${url.replace(/^\/+/, "")}`;
+    const trackedUrl = clickUrl.replace("ORIGINAL_URL", encodeURIComponent(absoluteUrl));
+    return `href=${quote}${trackedUrl}${quote}`;
+  });
+}
+
 export function buildPromptVariables(lead: LeadPromptInput, profile: ProfilePromptInput) {
   const fullName = [lead.first_name, lead.last_name].filter(Boolean).join(" ").trim();
   const variables: Record<string, string> = {
@@ -331,11 +364,17 @@ ${trackingInstructions}`;
       const parsed = JSON.parse(response.choices[0].message.content ?? "{}");
       if (parsed.subject && parsed.body_html) {
         const signature = selectEmailSignature(profile);
-        const bodyHtml = String(parsed.body_html);
+        const bodyHtml = appendOpenPixel(
+          wrapTrackedLinks(
+            appendEmailSignature(String(parsed.body_html), signature),
+            tracking?.clickUrl
+          ),
+          tracking?.openPixelUrl
+        );
         const bodyText = [stripHtml(bodyHtml), signature?.plain].filter(Boolean).join("\n\n");
         return {
           subject: String(parsed.subject),
-          body_html: appendEmailSignature(bodyHtml, signature),
+          body_html: bodyHtml,
           body_text: bodyText,
           resolvedSubjectPrompt: renderedSubjectPrompt,
           resolvedBodyPrompt: renderedBodyPrompt,

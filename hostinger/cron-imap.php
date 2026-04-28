@@ -54,7 +54,7 @@ function post_to_vercel(string $url, array $data): void {
 }
 
 // Fetch active IMAP-enabled accounts
-$accounts = supabase_get('email_accounts?status=eq.active&imap_enabled=eq.true&is_active=eq.true');
+$accounts = supabase_get('email_accounts?imap_enabled=eq.true&is_active=eq.true');
 
 foreach ($accounts as $acc) {
     if (empty($acc['imap_host']) || empty($acc['imap_pass_encrypted'])) continue;

@@ -107,3 +107,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ scheduled });
 }
+
+export async function GET(req: NextRequest) {
+  return POST(req);
+}

@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
 
   const { data: pendingSends } = await supabase
     .from("email_sends")
-    .select("id, tracking_id, campaign_id, lead_id")
+    .select("id, tracking_id, campaign_id, follow_up_id, lead_id")
     .eq("status", "pending_gen")
     .limit(10);
 
@@ -43,6 +43,21 @@ export async function POST(req: NextRequest) {
 
       if (!campaign || !lead) continue;
 
+      let subjectPrompt = campaign.subject_prompt;
+      let bodyPrompt = campaign.body_prompt;
+
+      if (send.follow_up_id) {
+        const { data: followUp } = await supabase
+          .from("follow_ups")
+          .select("subject_prompt, body_prompt")
+          .eq("id", send.follow_up_id)
+          .eq("campaign_id", send.campaign_id)
+          .single();
+
+        subjectPrompt = followUp?.subject_prompt ?? subjectPrompt;
+        bodyPrompt = followUp?.body_prompt ?? bodyPrompt;
+      }
+
       const senderProfiles = campaign.sender_profiles as unknown;
       const profile = Array.isArray(senderProfiles)
         ? (senderProfiles[0] as Record<string, unknown> | undefined) ?? null
@@ -59,8 +74,8 @@ export async function POST(req: NextRequest) {
       const result = await generateEmailContent({
         profile: profileWithSignatures as never,
         lead: lead as never,
-        subjectPrompt: campaign.subject_prompt,
-        bodyPrompt: campaign.body_prompt,
+        subjectPrompt,
+        bodyPrompt,
         appUrl,
         tracking: {
           clickUrl: `${appUrl}/t/click/${send.tracking_id}?url=ORIGINAL_URL`,
@@ -85,4 +100,8 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ generated });
+}
+
+export async function GET(req: NextRequest) {
+  return POST(req);
 }

@@ -62,10 +62,16 @@ export function CampaignDetail({ campaign, recentSends }: CampaignDetailProps) {
   async function toggleStatus() {
     setToggling(true);
     const newStatus = status === "active" ? "paused" : "active";
-    await apiFetch(`/api/campaigns/${campaign.id}/status`, {
+    const res = await apiFetch(`/api/campaigns/${campaign.id}/status`, {
       method: "PATCH",
       body: JSON.stringify({ status: newStatus }),
     });
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: "Failed to update campaign" }));
+      alert(error);
+      setToggling(false);
+      return;
+    }
     setStatus(newStatus);
     setToggling(false);
   }

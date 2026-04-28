@@ -22,6 +22,7 @@ export async function GET(
       .single();
 
     if (send) {
+      const isFirstOpen = !send.opened_at;
       await supabase
         .from("email_sends")
         .update({
@@ -37,7 +38,9 @@ export async function GET(
         user_agent: req.headers.get("user-agent"),
       });
 
-      await supabase.rpc("increment_campaign_open", { send_id: send.id }).maybeSingle();
+      if (isFirstOpen) {
+        await supabase.rpc("increment_campaign_open", { send_id: send.id }).maybeSingle();
+      }
     }
   } catch (err) {
     console.error("tracking open error:", err);

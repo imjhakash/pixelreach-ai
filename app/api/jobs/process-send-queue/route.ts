@@ -7,6 +7,45 @@ function verifyCron(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`;
 }
 
+function queueDelay(seconds: number) {
+  return new Date(Date.now() + seconds * 1000).toISOString();
+}
+
+async function recoverPrematureFailures(supabase: Awaited<ReturnType<typeof createServiceClient>>) {
+  const { data: failedRows } = await supabase
+    .from("email_send_queue")
+    .select("id, email_send_id")
+    .eq("status", "failed")
+    .eq("last_error", "email_send not ready")
+    .limit(50);
+
+  if (!failedRows || failedRows.length === 0) return;
+
+  const { data: sends } = await supabase
+    .from("email_sends")
+    .select("id, status")
+    .in("id", failedRows.map((row) => row.email_send_id))
+    .in("status", ["pending_gen", "ready"]);
+
+  const resumableSendIds = new Set((sends ?? []).map((send) => send.id));
+  const resumableQueueIds = failedRows
+    .filter((row) => resumableSendIds.has(row.email_send_id))
+    .map((row) => row.id);
+
+  if (resumableQueueIds.length === 0) return;
+
+  await supabase
+    .from("email_send_queue")
+    .update({
+      status: "pending",
+      last_error: null,
+      locked_by: null,
+      locked_at: null,
+      scheduled_at: new Date().toISOString(),
+    })
+    .in("id", resumableQueueIds);
+}
+
 export async function POST(req: NextRequest) {
   if (!verifyCron(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -14,6 +53,8 @@ export async function POST(req: NextRequest) {
 
   const supabase = await createServiceClient();
   const invocationId = `vercel-${Date.now()}`;
+
+  await recoverPrematureFailures(supabase);
 
   const { data: batch, error: lockErr } = await supabase.rpc("lock_queue_batch", {
     p_limit: 10,
@@ -30,14 +71,55 @@ export async function POST(req: NextRequest) {
     try {
       const { data: emailSend } = await supabase
         .from("email_sends")
-        .select("*, email_accounts(*), campaigns(sender_profiles(from_name, reply_to, daily_limit))")
+        .select("*, email_accounts(*), campaigns(status, sender_profiles(from_name, reply_to, daily_limit))")
         .eq("id", queueRow.email_send_id)
         .single();
 
-      if (!emailSend || emailSend.status !== "ready") {
+      if (!emailSend) {
         await supabase
           .from("email_send_queue")
-          .update({ status: "failed", last_error: "email_send not ready" })
+          .update({ status: "failed", last_error: "Email send record not found", locked_by: null, locked_at: null })
+          .eq("id", queueRow.id);
+        continue;
+      }
+
+      if (emailSend.status === "pending_gen") {
+        await supabase
+          .from("email_send_queue")
+          .update({
+            status: "pending",
+            last_error: "Waiting for email content generation",
+            locked_by: null,
+            locked_at: null,
+            scheduled_at: queueDelay(30),
+          })
+          .eq("id", queueRow.id);
+        continue;
+      }
+
+      if (emailSend.status !== "ready") {
+        await supabase
+          .from("email_send_queue")
+          .update({
+            status: emailSend.status === "sent" ? "sent" : "failed",
+            last_error: emailSend.status === "sent" ? null : `Email send is ${emailSend.status}`,
+            locked_by: null,
+            locked_at: null,
+          })
+          .eq("id", queueRow.id);
+        continue;
+      }
+
+      if (!emailSend.subject || !emailSend.body_html) {
+        await supabase
+          .from("email_send_queue")
+          .update({
+            status: "pending",
+            last_error: "Generated email content is incomplete",
+            locked_by: null,
+            locked_at: null,
+            scheduled_at: queueDelay(60),
+          })
           .eq("id", queueRow.id);
         continue;
       }
@@ -60,9 +142,25 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const profile = (emailSend.campaigns as unknown as {
+      const campaign = emailSend.campaigns as unknown as {
+        status: string;
         sender_profiles: { from_name: string; reply_to: string | null; daily_limit: number }
-      })?.sender_profiles;
+      } | null;
+      const profile = campaign?.sender_profiles;
+
+      if (campaign?.status !== "active") {
+        await supabase
+          .from("email_send_queue")
+          .update({
+            status: "pending",
+            last_error: "Campaign is not active",
+            locked_by: null,
+            locked_at: null,
+            scheduled_at: queueDelay(300),
+          })
+          .eq("id", queueRow.id);
+        continue;
+      }
 
       const today = new Date().toISOString().slice(0, 10);
       const dailySent = account.daily_reset_at === today ? account.daily_sent : 0;
@@ -128,17 +226,33 @@ export async function POST(req: NextRequest) {
       sent++;
     } catch (err) {
       console.error("process-send-queue error:", err);
+      const retryCount = (queueRow.retry_count ?? 0) + 1;
+      const shouldRetry = retryCount < 3;
+
       await supabase
         .from("email_send_queue")
         .update({
-          status: "failed",
+          status: shouldRetry ? "pending" : "failed",
           last_error: String(err),
-          retry_count: (batch.find((b: { id: string }) => b.id === queueRow.id)?.retry_count ?? 0) + 1,
+          retry_count: retryCount,
           locked_by: null,
+          locked_at: null,
+          ...(shouldRetry ? { scheduled_at: queueDelay(60 * retryCount) } : {}),
         })
         .eq("id", queueRow.id);
+
+      if (!shouldRetry) {
+        await supabase
+          .from("email_sends")
+          .update({ status: "failed", error_message: String(err) })
+          .eq("id", queueRow.email_send_id);
+      }
     }
   }
 
   return NextResponse.json({ sent });
+}
+
+export async function GET(req: NextRequest) {
+  return POST(req);
 }

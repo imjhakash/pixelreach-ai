@@ -119,16 +119,24 @@ export function CampaignsClient({
       setCampaigns((prev) => [campaign, ...prev]);
       setShowCreate(false);
       resetForm();
+    } else {
+      const { error } = await res.json().catch(() => ({ error: "Failed to create campaign" }));
+      alert(error);
     }
     setSaving(false);
   }
 
   async function toggleStatus(id: string, current: string) {
     const newStatus = current === "active" ? "paused" : "active";
-    await apiFetch(`/api/campaigns/${id}/status`, {
+    const res = await apiFetch(`/api/campaigns/${id}/status`, {
       method: "PATCH",
       body: JSON.stringify({ status: newStatus }),
     });
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: "Failed to update campaign" }));
+      alert(error);
+      return;
+    }
     setCampaigns((prev) => prev.map((c) => c.id === id ? { ...c, status: newStatus } : c));
   }
 
