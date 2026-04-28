@@ -49,6 +49,8 @@ const SEND_STATUS_ICON: Record<string, React.ReactNode> = {
 export function CampaignDetail({ campaign, recentSends }: CampaignDetailProps) {
   const [status, setStatus] = useState(campaign.status);
   const [toggling, setToggling] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [processResult, setProcessResult] = useState<{ generated: number; sent: number } | null>(null);
 
   const openRate = campaign.sent_count > 0
     ? Math.round((campaign.open_count / campaign.sent_count) * 100) : 0;
@@ -58,6 +60,22 @@ export function CampaignDetail({ campaign, recentSends }: CampaignDetailProps) {
     ? Math.round((campaign.bounce_count / campaign.sent_count) * 100) : 0;
   const progress = campaign.total_leads > 0
     ? Math.round((campaign.sent_count / campaign.total_leads) * 100) : 0;
+
+  async function processNow() {
+    setProcessing(true);
+    setProcessResult(null);
+    const res = await apiFetch(`/api/campaigns/${campaign.id}/process`, { method: "POST" });
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: "Failed to process" }));
+      alert(error);
+      setProcessing(false);
+      return;
+    }
+    const data = await res.json();
+    setProcessResult(data);
+    setProcessing(false);
+    setTimeout(() => setProcessResult(null), 5000);
+  }
 
   async function toggleStatus() {
     setToggling(true);
@@ -88,6 +106,17 @@ export function CampaignDetail({ campaign, recentSends }: CampaignDetailProps) {
             {status === "active" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             {status === "active" ? "Pause" : "Start"} Campaign
           </Button>
+        )}
+        {status === "active" && (
+          <Button variant="secondary" size="sm" onClick={processNow} disabled={processing}>
+            <RefreshCw className={`h-4 w-4 ${processing ? "animate-spin" : ""}`} />
+            {processing ? "Processing…" : "Process Now"}
+          </Button>
+        )}
+        {processResult && (
+          <span className="text-xs text-[var(--success)] font-medium">
+            Generated {processResult.generated} · Sent {processResult.sent}
+          </span>
         )}
         {campaign.follow_ups && campaign.follow_ups.length > 0 && (
           <div className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
