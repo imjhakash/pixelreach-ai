@@ -17,6 +17,10 @@ import { generateEmailContent, getProfileSignaturesFromUser } from "@/lib/prompt
 import { decrypt } from "@/lib/encrypt";
 import nodemailer from "nodemailer";
 
+/** Node runtime + generous cap so SMTP + OpenRouter finish under load (Pro tier uses full limit). */
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 function verifyCron(req: NextRequest): boolean {

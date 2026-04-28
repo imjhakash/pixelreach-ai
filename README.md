@@ -41,44 +41,51 @@ Open [http://localhost:3000](http://localhost:3000)
 2. Import in [Vercel](https://vercel.com) → add the env vars above
 3. Deploy
 
-### 5. cron-job.org Jobs
+### 5. Vercel Cron (campaign worker)
 
-Create one worker job at [cron-job.org](https://cron-job.org). In the Create cronjob form:
+This repo includes [`vercel.json`](./vercel.json) so **production** deployments register one cron job:
 
-1. Set **Title** to `PixelReach - Campaign Worker`.
-2. Paste this **URL**: `https://your-app.vercel.app/api/jobs/campaign-worker`.
-3. Keep **Enable job** turned on.
-4. Turn **Save responses in job history** on while testing.
-5. Under **Execution schedule**, choose **Custom**.
-6. Paste this **Crontab expression**: `* * * * *`.
-7. Enable failure notifications.
-8. In request settings, use **GET**, empty body, and this custom header:
+| Field | Value |
+|-------|--------|
+| **Path** | `/api/jobs/campaign-worker` |
+| **Schedule** | `* * * * *` (every minute, UTC) |
 
-```
-Header name: Authorization
-Header value: Bearer your_cron_secret_token
-```
+**Required:** add **`CRON_SECRET`** (random string, 16+ characters) in **Vercel → Project → Settings → Environment Variables** (Production). Vercel sends it automatically as `Authorization: Bearer <CRON_SECRET>` when invoking cron routes ([docs](https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs)).
 
-The worker generates the next pending email, sends one due email, and schedules follow-ups in that order. This keeps campaigns moving one email at a time.
+After deploy, confirm under **Project → Settings → Cron Jobs** that the schedule is active and invocations return **200**.
+
+**Plan limits:** On **Vercel Hobby**, cron expressions that run **more than once per day** fail at deploy time. Use **Vercel Pro** for per-minute cron, or keep an external scheduler (e.g. [cron-job.org](https://cron-job.org)) calling the same URL with the same `Authorization` header.
 
 For reply and bounce tracking, keep an IMAP poller pointed at `/api/imap/ingest`. The included `hostinger/cron-imap.php` script can still be used for that if you host it somewhere with PHP IMAP enabled.
 
 ---
 
+### Optional: External cron (Hobby / redundancy)
+
+If you cannot use Pro yet, create **one** GET job at [cron-job.org](https://cron-job.org) to:
+
+`https://your-app.vercel.app/api/jobs/campaign-worker`
+
+with header `Authorization: Bearer <same CRON_SECRET>` and schedule `* * * * *`.
+
+---
 ## Architecture
 
 ```
 User Browser → Next.js (Vercel) → Supabase Postgres
                      ↑
-        cron-job.org (every 1 min)
+        Vercel Cron (* * * * * UTC) — Pro plan for every-minute schedules
         → /api/jobs/campaign-worker
-          → generate next email
-          → send one due email
-          → schedule follow-ups
+          → generate next email → send one → schedule follow-ups
 
         IMAP poller
         → /api/imap/ingest (bounce/reply detection)
 ```
+
+(Hobby: use external cron or upgrade to Pro — see README §5.)
+
+---
+
 
 ## Email Tracking
 
@@ -96,7 +103,7 @@ Users bring their own OpenRouter API key — they pay only for what they use. An
 
 ---
 
-*Built by CodeMyPixel · Free tier stack: Vercel Hobby + Supabase Free + cron-job.org*
+*Built by CodeMyPixel · Stack: Vercel + Supabase + OpenRouter (+ Vercel Cron or external cron on Hobby)*
 
 ## Getting Started
 
