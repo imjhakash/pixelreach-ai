@@ -1,13 +1,21 @@
 import { createClient } from "@/lib/supabase/server";
 import { Header } from "@/components/layout/header";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Server, Database, Zap, Clock } from "lucide-react";
+import { Server, Database, Zap, Clock, ExternalLink, ShieldCheck } from "lucide-react";
 import { SettingsClient } from "@/components/settings/settings-client";
+
+const CRON_JOBS = [
+  { path: "/api/jobs/generate-emails", freq: "Every 1 min", desc: "Pre-generate AI email bodies for pending sends" },
+  { path: "/api/jobs/process-send-queue", freq: "Every 1 min", desc: "Send up to 10 queued emails via SMTP" },
+  { path: "/api/jobs/process-followups", freq: "Every 5 min", desc: "Schedule follow-up emails that are due" },
+];
 
 export default async function SettingsPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://your-app.vercel.app";
 
   return (
     <div>
@@ -61,6 +69,68 @@ export default async function SettingsPage() {
           </CardContent>
         </Card>
 
+        {/* cron-job.org Setup */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-[var(--accent)]" />
+              <CardTitle>cron-job.org Setup Flow</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-medium text-[var(--foreground)]">Create the scheduler jobs on cron-job.org</p>
+                <p className="text-xs text-[var(--muted)] mt-1">
+                  cron-job.org supports minute-by-minute jobs and custom HTTP headers, which fits these protected cron endpoints.
+                </p>
+              </div>
+              <Button asChild variant="secondary" className="shrink-0">
+                <a href="https://cron-job.org/en/" target="_blank" rel="noreferrer">
+                  Open cron-job.org
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </Button>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              {[
+                "Sign up or log in, then click Create cronjob.",
+                "Set Method to GET and paste one job URL below.",
+                "Add the Authorization header, save, then run a test execution.",
+              ].map((step, index) => (
+                <div key={step} className="rounded-lg border border-[var(--border)] p-3">
+                  <Badge variant="muted">Step {index + 1}</Badge>
+                  <p className="mt-2 text-xs text-[var(--muted)]">{step}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-lg border border-[var(--border)] p-3">
+              <p className="text-xs font-semibold text-[var(--foreground)] mb-2">Custom header for every job</p>
+              <code className="block overflow-x-auto rounded bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--accent)]">
+                Authorization: Bearer your_cron_secret_token
+              </code>
+              <p className="text-xs text-[var(--muted)] mt-2">
+                Use the exact same value as your Vercel <code className="bg-[var(--surface-2)] px-1 rounded">CRON_SECRET</code>.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[var(--foreground)]">Jobs to create</p>
+              {CRON_JOBS.map(({ path, freq, desc }) => (
+                <div key={path} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <code className="text-xs font-mono text-[var(--accent)] break-all">{appUrl}{path}</code>
+                    <Badge variant="muted" className="w-fit">{freq}</Badge>
+                  </div>
+                  <p className="text-xs text-[var(--muted)] mt-1">{desc}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Cron Endpoints */}
         <Card>
           <CardHeader>
@@ -75,9 +145,7 @@ export default async function SettingsPage() {
               <code className="bg-[var(--surface-2)] px-1 rounded">Authorization: Bearer CRON_SECRET</code>.
             </p>
             {[
-              { path: "/api/jobs/generate-emails", freq: "Every 1 min", desc: "Pre-generate AI email bodies for pending sends" },
-              { path: "/api/jobs/process-send-queue", freq: "Every 1 min", desc: "Send up to 10 queued emails via SMTP" },
-              { path: "/api/jobs/process-followups", freq: "Every 5 min", desc: "Schedule follow-up emails that are due" },
+              ...CRON_JOBS,
               { path: "/api/imap/ingest", freq: "Webhook", desc: "Receive bounce/reply data from your IMAP poller" },
             ].map(({ path, freq, desc }) => (
               <div key={path} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
