@@ -10,10 +10,13 @@ import { createClient } from "@/lib/supabase/client";
 import {
   Check,
   Copy,
+  Database,
+  ExternalLink,
   KeyRound,
   Loader2,
   Plug,
   Plus,
+  RefreshCw,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
@@ -26,7 +29,42 @@ type TokenRow = {
   created_at: string;
 };
 
-export function McpClient({ baseUrl }: { baseUrl: string }) {
+const SETUP_SQL = `CREATE TABLE IF NOT EXISTS api_tokens (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  label         TEXT NOT NULL,
+  token_hash    TEXT NOT NULL UNIQUE,
+  token_prefix  TEXT NOT NULL,
+  last_used_at  TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+
+ALTER TABLE api_tokens ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "own api_tokens" ON api_tokens;
+CREATE POLICY "own api_tokens" ON api_tokens
+  FOR ALL USING (auth.uid() = user_id);
+`;
+
+function isSetupMissingError(msg: string | null) {
+  if (!msg) return false;
+  const m = msg.toLowerCase();
+  return (
+    m.includes("api_tokens") &&
+    (m.includes("schema cache") || m.includes("does not exist") || m.includes("not find"))
+  );
+}
+
+export function McpClient({
+  baseUrl,
+  sqlEditorUrl,
+}: {
+  baseUrl: string;
+  sqlEditorUrl: string | null;
+}) {
   const supabase = createClient();
   const [tokens, setTokens] = useState<TokenRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,8 +187,77 @@ export function McpClient({ baseUrl }: { baseUrl: string }) {
     2
   );
 
+  const setupNeeded = isSetupMissingError(error);
+
+  function setupNow() {
+    navigator.clipboard.writeText(SETUP_SQL);
+    setCopied("setup");
+    setTimeout(() => setCopied(null), 2000);
+    if (sqlEditorUrl) {
+      window.open(sqlEditorUrl, "_blank", "noopener,noreferrer");
+    }
+  }
+
+  async function recheck() {
+    setLoading(true);
+    setError(null);
+    await loadTokens();
+  }
+
   return (
     <div className="space-y-6">
+      {/* Setup-needed banner */}
+      {setupNeeded && (
+        <Card className="border-[var(--warning)]/40 bg-[var(--warning)]/5">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Database className="h-4 w-4 text-[var(--warning)]" />
+              <CardTitle>One-time setup needed</CardTitle>
+            </div>
+            <CardDescription>
+              The <code className="font-mono">api_tokens</code> table doesn&apos;t exist yet.
+              Click below — it copies the SQL to your clipboard and opens your Supabase SQL editor.
+              Paste with <kbd className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-xs">⌘V</kbd>,
+              hit <strong>Run</strong>, then come back here and click <em>Re-check</em>.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={setupNow} disabled={!sqlEditorUrl}>
+                {copied === "setup" ? (
+                  <Check className="h-3 w-3" />
+                ) : (
+                  <ExternalLink className="h-3 w-3" />
+                )}
+                {copied === "setup"
+                  ? "Copied — paste in editor"
+                  : sqlEditorUrl
+                  ? "Copy SQL & open Supabase editor"
+                  : "SQL editor URL unavailable"}
+              </Button>
+              <Button variant="secondary" onClick={() => copy(SETUP_SQL, "sql")}>
+                {copied === "sql" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                {copied === "sql" ? "Copied" : "Copy SQL only"}
+              </Button>
+              <Button variant="secondary" onClick={recheck} disabled={loading}>
+                {loading ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3 w-3" />
+                )}
+                Re-check
+              </Button>
+            </div>
+            <details className="text-xs text-[var(--muted)]">
+              <summary className="cursor-pointer select-none">Show SQL</summary>
+              <pre className="mt-2 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 font-mono">
+                <code>{SETUP_SQL}</code>
+              </pre>
+            </details>
+          </CardContent>
+        </Card>
+      )}
+
       {/* What is this */}
       <Card>
         <CardHeader>
@@ -224,7 +331,7 @@ export function McpClient({ baseUrl }: { baseUrl: string }) {
             </Button>
           </div>
 
-          {error && (
+          {error && !setupNeeded && (
             <div className="flex items-center gap-2 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
               <TriangleAlert className="h-3 w-3" />
               {error}
