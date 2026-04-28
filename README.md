@@ -43,16 +43,32 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ### 5. cron-job.org Jobs
 
-Create these jobs at [cron-job.org](https://cron-job.org). Use **GET** requests and add this custom header to each job:
+Create these jobs at [cron-job.org](https://cron-job.org). In the Create cronjob form:
+
+1. Set **Title** from the list below.
+2. Paste the full **URL**.
+3. Keep **Enable job** turned on.
+4. Turn **Save responses in job history** on while testing.
+5. Under **Execution schedule**, choose **Custom**.
+6. Paste the matching **Crontab expression**.
+7. Enable failure notifications.
+8. In request settings, use **GET**, empty body, and this custom header:
 
 ```
-Authorization: Bearer your_cron_secret_token
+Header name: Authorization
+Header value: Bearer your_cron_secret_token
 ```
 
 Jobs:
-- `https://your-app.vercel.app/api/jobs/generate-emails` → **Every 1 minute**
-- `https://your-app.vercel.app/api/jobs/process-send-queue` → **Every 1 minute**
-- `https://your-app.vercel.app/api/jobs/process-followups` → **Every 5 minutes**
+- `PixelReach - Generate Emails`
+  URL: `https://your-app.vercel.app/api/jobs/generate-emails`
+  Crontab: `* * * * *`
+- `PixelReach - Send Queue`
+  URL: `https://your-app.vercel.app/api/jobs/process-send-queue`
+  Crontab: `* * * * *`
+- `PixelReach - Follow-ups`
+  URL: `https://your-app.vercel.app/api/jobs/process-followups`
+  Crontab: `*/5 * * * *`
 
 For reply and bounce tracking, keep an IMAP poller pointed at `/api/imap/ingest`. The included `hostinger/cron-imap.php` script can still be used for that if you host it somewhere with PHP IMAP enabled.
 

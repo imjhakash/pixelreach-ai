@@ -7,9 +7,27 @@ import { Server, Database, Zap, Clock, ExternalLink, ShieldCheck } from "lucide-
 import { SettingsClient } from "@/components/settings/settings-client";
 
 const CRON_JOBS = [
-  { path: "/api/jobs/generate-emails", freq: "Every 1 min", desc: "Pre-generate AI email bodies for pending sends" },
-  { path: "/api/jobs/process-send-queue", freq: "Every 1 min", desc: "Send up to 10 queued emails via SMTP" },
-  { path: "/api/jobs/process-followups", freq: "Every 5 min", desc: "Schedule follow-up emails that are due" },
+  {
+    title: "PixelReach - Generate Emails",
+    path: "/api/jobs/generate-emails",
+    freq: "Every 1 min",
+    cron: "* * * * *",
+    desc: "Pre-generate AI email bodies for pending sends",
+  },
+  {
+    title: "PixelReach - Send Queue",
+    path: "/api/jobs/process-send-queue",
+    freq: "Every 1 min",
+    cron: "* * * * *",
+    desc: "Send queued emails via SMTP",
+  },
+  {
+    title: "PixelReach - Follow-ups",
+    path: "/api/jobs/process-followups",
+    freq: "Every 5 min",
+    cron: "*/5 * * * *",
+    desc: "Schedule follow-up emails that are due",
+  },
 ];
 
 export default async function SettingsPage() {
@@ -80,9 +98,9 @@ export default async function SettingsPage() {
           <CardContent className="space-y-4">
             <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-sm font-medium text-[var(--foreground)]">Create the scheduler jobs on cron-job.org</p>
+                <p className="text-sm font-medium text-[var(--foreground)]">Create 3 separate cronjobs</p>
                 <p className="text-xs text-[var(--muted)] mt-1">
-                  cron-job.org supports minute-by-minute jobs and custom HTTP headers, which fits these protected cron endpoints.
+                  Use cron-job.org&apos;s Create cronjob form. Do not leave the default 15-minute schedule for sending jobs.
                 </p>
               </div>
               <Button asChild variant="secondary" className="shrink-0">
@@ -93,38 +111,49 @@ export default async function SettingsPage() {
               </Button>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-3">
-              {[
-                "Sign up or log in, then click Create cronjob.",
-                "Set Method to GET and paste one job URL below.",
-                "Add the Authorization header, save, then run a test execution.",
-              ].map((step, index) => (
-                <div key={step} className="rounded-lg border border-[var(--border)] p-3">
-                  <Badge variant="muted">Step {index + 1}</Badge>
-                  <p className="mt-2 text-xs text-[var(--muted)]">{step}</p>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="rounded-lg border border-[var(--border)] p-3">
+                <p className="text-xs font-semibold text-[var(--foreground)] mb-2">Form settings for each job</p>
+                <div className="space-y-2 text-xs text-[var(--muted)]">
+                  <p><span className="text-[var(--foreground)]">URL:</span> paste the full job URL from below.</p>
+                  <p><span className="text-[var(--foreground)]">Enable job:</span> on.</p>
+                  <p><span className="text-[var(--foreground)]">Save responses:</span> on while testing, optional later.</p>
+                  <p><span className="text-[var(--foreground)]">Execution schedule:</span> choose Custom.</p>
+                  <p><span className="text-[var(--foreground)]">Timezone:</span> your account timezone is fine.</p>
+                  <p><span className="text-[var(--foreground)]">Notify me:</span> enable failure notifications.</p>
                 </div>
-              ))}
-            </div>
+              </div>
 
-            <div className="rounded-lg border border-[var(--border)] p-3">
-              <p className="text-xs font-semibold text-[var(--foreground)] mb-2">Custom header for every job</p>
-              <code className="block overflow-x-auto rounded bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--accent)]">
-                Authorization: Bearer your_cron_secret_token
-              </code>
-              <p className="text-xs text-[var(--muted)] mt-2">
-                Use the exact same value as your Vercel <code className="bg-[var(--surface-2)] px-1 rounded">CRON_SECRET</code>.
-              </p>
+              <div className="rounded-lg border border-[var(--border)] p-3">
+                <p className="text-xs font-semibold text-[var(--foreground)] mb-2">Request settings for each job</p>
+                <div className="space-y-2 text-xs text-[var(--muted)]">
+                  <p><span className="text-[var(--foreground)]">Method:</span> GET.</p>
+                  <p><span className="text-[var(--foreground)]">Body:</span> empty.</p>
+                  <p><span className="text-[var(--foreground)]">HTTP header name:</span> Authorization.</p>
+                  <p><span className="text-[var(--foreground)]">HTTP header value:</span></p>
+                  <code className="block overflow-x-auto rounded bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--accent)]">
+                    Bearer your_cron_secret_token
+                  </code>
+                  <p>Use the exact same value as your Vercel <code className="bg-[var(--surface-2)] px-1 rounded">CRON_SECRET</code>.</p>
+                </div>
+              </div>
             </div>
 
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-[var(--foreground)]">Jobs to create</p>
-              {CRON_JOBS.map(({ path, freq, desc }) => (
+              <p className="text-xs font-semibold text-[var(--foreground)]">Create these jobs</p>
+              {CRON_JOBS.map(({ title, path, freq, cron, desc }) => (
                 <div key={path} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
-                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                    <code className="text-xs font-mono text-[var(--accent)] break-all">{appUrl}{path}</code>
-                    <Badge variant="muted" className="w-fit">{freq}</Badge>
+                  <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-[var(--foreground)]">{title}</p>
+                      <code className="block text-xs font-mono text-[var(--accent)] break-all">{appUrl}{path}</code>
+                      <p className="text-xs text-[var(--muted)]">{desc}</p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <Badge variant="muted">{freq}</Badge>
+                      <code className="rounded bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]">{cron}</code>
+                    </div>
                   </div>
-                  <p className="text-xs text-[var(--muted)] mt-1">{desc}</p>
                 </div>
               ))}
             </div>
