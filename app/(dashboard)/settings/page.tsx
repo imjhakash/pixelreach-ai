@@ -6,7 +6,15 @@ import { Badge } from "@/components/ui/badge";
 import { Server, Database, Zap, Clock, ExternalLink, ShieldCheck } from "lucide-react";
 import { SettingsClient } from "@/components/settings/settings-client";
 
-const CRON_JOBS = [
+const CAMPAIGN_WORKER_JOB = {
+  title: "PixelReach - Campaign Worker",
+  path: "/api/jobs/campaign-worker",
+  freq: "Every 1 min",
+  cron: "* * * * *",
+  desc: "Generates the next email, sends one due email, and schedules follow-ups",
+};
+
+const ADVANCED_JOB_ENDPOINTS = [
   {
     title: "PixelReach - Generate Emails",
     path: "/api/jobs/generate-emails",
@@ -72,7 +80,7 @@ export default async function SettingsPage() {
                 { service: "Database", provider: "Supabase Free", status: "active", detail: "500MB Postgres + Auth + Storage" },
                 { service: "AI Generation", provider: "OpenRouter", status: "active", detail: "User's own API key — pay per use" },
                 { service: "Email Sending", provider: "Nodemailer / SMTP", status: "active", detail: "User's own Gmail/SMTP accounts" },
-                { service: "Cron Jobs", provider: "cron-job.org", status: "active", detail: "Every 1 min send · Every 5 min follow-ups" },
+                { service: "Cron Jobs", provider: "cron-job.org", status: "active", detail: "One worker job every 1 min" },
                 { service: "Tracking Domain", provider: "Cloudflare", status: "active", detail: "Open pixel + click redirect" },
               ].map(({ service, provider, status, detail }) => (
                 <div key={service} className="flex items-center justify-between py-2 border-b border-[var(--border)] last:border-0">
@@ -98,9 +106,10 @@ export default async function SettingsPage() {
           <CardContent className="space-y-4">
             <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-sm font-medium text-[var(--foreground)]">Create 3 separate cronjobs</p>
+                <p className="text-sm font-medium text-[var(--foreground)]">Create 1 campaign worker cronjob</p>
                 <p className="text-xs text-[var(--muted)] mt-1">
-                  Use cron-job.org&apos;s Create cronjob form. Do not leave the default 15-minute schedule for sending jobs.
+                  This worker runs the campaign in order: generate the next email, send one due email, then schedule follow-ups.
+                  Do not leave the default 15-minute schedule.
                 </p>
               </div>
               <Button asChild variant="secondary" className="shrink-0">
@@ -140,22 +149,24 @@ export default async function SettingsPage() {
             </div>
 
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-[var(--foreground)]">Create these jobs</p>
-              {CRON_JOBS.map(({ title, path, freq, cron, desc }) => (
-                <div key={path} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
-                  <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium text-[var(--foreground)]">{title}</p>
-                      <code className="block text-xs font-mono text-[var(--accent)] break-all">{appUrl}{path}</code>
-                      <p className="text-xs text-[var(--muted)]">{desc}</p>
-                    </div>
-                    <div className="flex shrink-0 flex-wrap gap-2">
-                      <Badge variant="muted">{freq}</Badge>
-                      <code className="rounded bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]">{cron}</code>
-                    </div>
+              <p className="text-xs font-semibold text-[var(--foreground)]">Required job to create</p>
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-[var(--foreground)]">{CAMPAIGN_WORKER_JOB.title}</p>
+                    <code className="block text-xs font-mono text-[var(--accent)] break-all">
+                      {appUrl}{CAMPAIGN_WORKER_JOB.path}
+                    </code>
+                    <p className="text-xs text-[var(--muted)]">{CAMPAIGN_WORKER_JOB.desc}</p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <Badge variant="muted">{CAMPAIGN_WORKER_JOB.freq}</Badge>
+                    <code className="rounded bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]">
+                      {CAMPAIGN_WORKER_JOB.cron}
+                    </code>
                   </div>
                 </div>
-              ))}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -174,7 +185,8 @@ export default async function SettingsPage() {
               <code className="bg-[var(--surface-2)] px-1 rounded">Authorization: Bearer CRON_SECRET</code>.
             </p>
             {[
-              ...CRON_JOBS,
+              CAMPAIGN_WORKER_JOB,
+              ...ADVANCED_JOB_ENDPOINTS,
               { path: "/api/imap/ingest", freq: "Webhook", desc: "Receive bounce/reply data from your IMAP poller" },
             ].map(({ path, freq, desc }) => (
               <div key={path} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">

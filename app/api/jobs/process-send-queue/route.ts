@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   await recoverPrematureFailures(supabase);
 
   const { data: batch, error: lockErr } = await supabase.rpc("lock_queue_batch", {
-    p_limit: 10,
+    p_limit: 1,
     p_locked_by: invocationId,
   });
 

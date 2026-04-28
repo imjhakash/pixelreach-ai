@@ -18,7 +18,8 @@ export async function POST(req: NextRequest) {
     .from("email_sends")
     .select("id, tracking_id, campaign_id, follow_up_id, lead_id")
     .eq("status", "pending_gen")
-    .limit(10);
+    .order("created_at", { ascending: true })
+    .limit(1);
 
   if (!pendingSends || pendingSends.length === 0) {
     return NextResponse.json({ generated: 0 });
