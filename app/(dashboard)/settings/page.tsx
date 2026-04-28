@@ -46,7 +46,7 @@ export default async function SettingsPage() {
                 { service: "Database", provider: "Supabase Free", status: "active", detail: "500MB Postgres + Auth + Storage" },
                 { service: "AI Generation", provider: "OpenRouter", status: "active", detail: "User's own API key — pay per use" },
                 { service: "Email Sending", provider: "Nodemailer / SMTP", status: "active", detail: "User's own Gmail/SMTP accounts" },
-                { service: "Cron Jobs", provider: "Hostinger PHP", status: "active", detail: "Every 1 min send · Every 5 min IMAP" },
+                { service: "Cron Jobs", provider: "cron-job.org", status: "active", detail: "Every 1 min send · Every 5 min follow-ups" },
                 { service: "Tracking Domain", provider: "Cloudflare", status: "active", detail: "Open pixel + click redirect" },
               ].map(({ service, provider, status, detail }) => (
                 <div key={service} className="flex items-center justify-between py-2 border-b border-[var(--border)] last:border-0">
@@ -71,14 +71,14 @@ export default async function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-xs text-[var(--muted)]">
-              Configure these URLs in your Hostinger cron scheduler. Requires{" "}
-              <code className="bg-[var(--surface-2)] px-1 rounded">CRON_SECRET</code> header.
+              Configure these URLs in cron-job.org as GET requests with the custom header{" "}
+              <code className="bg-[var(--surface-2)] px-1 rounded">Authorization: Bearer CRON_SECRET</code>.
             </p>
             {[
               { path: "/api/jobs/generate-emails", freq: "Every 1 min", desc: "Pre-generate AI email bodies for pending sends" },
               { path: "/api/jobs/process-send-queue", freq: "Every 1 min", desc: "Send up to 10 queued emails via SMTP" },
               { path: "/api/jobs/process-followups", freq: "Every 5 min", desc: "Schedule follow-up emails that are due" },
-              { path: "/api/imap/ingest", freq: "Called by PHP", desc: "Receive bounce/reply data from Hostinger IMAP poller" },
+              { path: "/api/imap/ingest", freq: "Webhook", desc: "Receive bounce/reply data from your IMAP poller" },
             ].map(({ path, freq, desc }) => (
               <div key={path} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
                 <div className="flex items-center justify-between mb-1">

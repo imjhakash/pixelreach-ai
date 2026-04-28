@@ -41,13 +41,20 @@ Open [http://localhost:3000](http://localhost:3000)
 2. Import in [Vercel](https://vercel.com) → add the env vars above
 3. Deploy
 
-### 5. Hostinger Cron Jobs
+### 5. cron-job.org Jobs
 
-Upload `hostinger/cron-trigger.php` and `hostinger/cron-imap.php` to your Hostinger hosting. Update the `$APP_URL` and credentials inside each file.
+Create these jobs at [cron-job.org](https://cron-job.org). Use **GET** requests and add this custom header to each job:
 
-In Hostinger **Cron Jobs** panel:
-- `cron-trigger.php` → **Every 1 minute**
-- `cron-imap.php` → **Every 5 minutes**
+```
+Authorization: Bearer your_cron_secret_token
+```
+
+Jobs:
+- `https://your-app.vercel.app/api/jobs/generate-emails` → **Every 1 minute**
+- `https://your-app.vercel.app/api/jobs/process-send-queue` → **Every 1 minute**
+- `https://your-app.vercel.app/api/jobs/process-followups` → **Every 5 minutes**
+
+For reply and bounce tracking, keep an IMAP poller pointed at `/api/imap/ingest`. The included `hostinger/cron-imap.php` script can still be used for that if you host it somewhere with PHP IMAP enabled.
 
 ---
 
@@ -56,12 +63,14 @@ In Hostinger **Cron Jobs** panel:
 ```
 User Browser → Next.js (Vercel) → Supabase Postgres
                      ↑
-        Hostinger PHP Cron (every 1 min)
+        cron-job.org (every 1 min)
         → /api/jobs/generate-emails   (AI via OpenRouter)
         → /api/jobs/process-send-queue (SMTP via Nodemailer)
 
-        Hostinger PHP Cron (every 5 min)
+        cron-job.org (every 5 min)
         → /api/jobs/process-followups
+
+        IMAP poller
         → /api/imap/ingest (bounce/reply detection)
 ```
 
@@ -81,7 +90,7 @@ Users bring their own OpenRouter API key — they pay only for what they use. An
 
 ---
 
-*Built by CodeMyPixel · Free tier stack: Vercel Hobby + Supabase Free + Hostinger shared*
+*Built by CodeMyPixel · Free tier stack: Vercel Hobby + Supabase Free + cron-job.org*
 
 ## Getting Started
 
