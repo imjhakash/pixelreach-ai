@@ -3,52 +3,21 @@ import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Server, Database, Zap, Clock, ExternalLink, ShieldCheck } from "lucide-react";
+import { Server, Database, Zap, ExternalLink, ShieldCheck, AlertCircle } from "lucide-react";
 import { SettingsClient } from "@/components/settings/settings-client";
-
-const CAMPAIGN_WORKER_JOB = {
-  title: "PixelReach - Campaign Worker",
-  path: "/api/jobs/campaign-worker",
-  freq: "Every 1 min",
-  cron: "* * * * *",
-  desc: "Generates the next email, sends one due email, and schedules follow-ups",
-};
-
-const ADVANCED_JOB_ENDPOINTS = [
-  {
-    title: "PixelReach - Generate Emails",
-    path: "/api/jobs/generate-emails",
-    freq: "Every 1 min",
-    cron: "* * * * *",
-    desc: "Pre-generate AI email bodies for pending sends",
-  },
-  {
-    title: "PixelReach - Send Queue",
-    path: "/api/jobs/process-send-queue",
-    freq: "Every 1 min",
-    cron: "* * * * *",
-    desc: "Send queued emails via SMTP",
-  },
-  {
-    title: "PixelReach - Follow-ups",
-    path: "/api/jobs/process-followups",
-    freq: "Every 5 min",
-    cron: "*/5 * * * *",
-    desc: "Schedule follow-up emails that are due",
-  },
-];
 
 export default async function SettingsPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://your-app.vercel.app";
+  const workerUrl = `${appUrl}/api/jobs/campaign-worker`;
 
   return (
     <div>
       <Header title="Settings" subtitle="System configuration and infrastructure info" />
       <div className="p-6 space-y-6">
 
-        {/* User Info */}
+        {/* Account */}
         <Card>
           <CardHeader>
             <CardTitle>Account</CardTitle>
@@ -70,169 +39,161 @@ export default async function SettingsPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <Server className="h-4 w-4 text-[var(--accent)]" />
-              <CardTitle>Infrastructure (Free Tier)</CardTitle>
+              <CardTitle>Infrastructure</CardTitle>
             </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               {[
-                { service: "Next.js App", provider: "Vercel Hobby", status: "active", detail: "Free · 100GB bandwidth/mo" },
-                { service: "Database", provider: "Supabase Free", status: "active", detail: "500MB Postgres + Auth + Storage" },
-                { service: "AI Generation", provider: "OpenRouter", status: "active", detail: "User's own API key — pay per use" },
-                { service: "Email Sending", provider: "Nodemailer / SMTP", status: "active", detail: "User's own Gmail/SMTP accounts" },
-                { service: "Cron Jobs", provider: "Vercel Cron", status: "active", detail: "vercel.json → /api/jobs/campaign-worker every 1 min (Pro)" },
-                { service: "Tracking Domain", provider: "Cloudflare", status: "active", detail: "Open pixel + click redirect" },
-              ].map(({ service, provider, status, detail }) => (
+                { service: "Next.js App", provider: "Vercel Hobby", detail: "Free · 100GB bandwidth/mo" },
+                { service: "Database", provider: "Supabase Free", detail: "500MB Postgres + Auth + Storage" },
+                { service: "AI Generation", provider: "OpenRouter", detail: "User's own API key — pay per use" },
+                { service: "Email Sending", provider: "Nodemailer / SMTP", detail: "User's own Gmail/SMTP accounts" },
+                { service: "Cron Scheduler", provider: "cron-job.org", detail: "Free · pings campaign-worker every minute" },
+                { service: "Tracking Domain", provider: "Cloudflare", detail: "Open pixel + click redirect" },
+              ].map(({ service, provider, detail }) => (
                 <div key={service} className="flex items-center justify-between py-2 border-b border-[var(--border)] last:border-0">
                   <div>
                     <p className="text-sm font-medium text-[var(--foreground)]">{service}</p>
                     <p className="text-xs text-[var(--muted)]">{provider} · {detail}</p>
                   </div>
-                  <Badge variant="success">{status}</Badge>
+                  <Badge variant="success">active</Badge>
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
 
-        {/* Vercel Cron (primary) */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-[var(--accent)]" />
-              <CardTitle>Vercel Cron (recommended)</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-xs text-[var(--muted)]">
-              This repo ships <code className="bg-[var(--surface-2)] px-1 rounded">vercel.json</code> with one cron that hits{" "}
-              <code className="bg-[var(--surface-2)] px-1 rounded">/api/jobs/campaign-worker</code> every minute (
-              <code className="bg-[var(--surface-2)] px-1 rounded">* * * * *</code> UTC). After deploy, confirm it under{" "}
-              <strong>Project → Settings → Cron Jobs</strong>.
-            </p>
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 space-y-2 text-xs text-[var(--muted)]">
-              <p><span className="text-[var(--foreground)] font-medium">1.</span> Add <code className="bg-[var(--surface)] px-1 rounded">CRON_SECRET</code> (16+ random chars) to Vercel → Environment Variables for Production.</p>
-              <p><span className="text-[var(--foreground)] font-medium">2.</span> Redeploy. Vercel automatically sends <code className="bg-[var(--surface)] px-1 rounded">Authorization: Bearer {"{CRON_SECRET}"}</code> on cron invocations — your route already verifies this.</p>
-              <p><span className="text-[var(--foreground)] font-medium">3.</span> Worker URL (for reference):</p>
-              <code className="block text-xs font-mono text-[var(--accent)] break-all">{appUrl}{CAMPAIGN_WORKER_JOB.path}</code>
-            </div>
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-[var(--muted)]">
-              <p className="font-medium text-[var(--foreground)] mb-1">Vercel Hobby vs Pro</p>
-              <p>
-                Hobby teams can only deploy cron schedules that run <strong>once per day</strong>. A per-minute schedule may fail at deploy time with “limited to daily cron jobs”.
-                Use <strong>Vercel Pro</strong> for minute-level cron, or use the external cron fallback below.
-              </p>
-            </div>
-            <Button asChild variant="secondary" className="shrink-0">
-              <a href="https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs" target="_blank" rel="noreferrer">
-                Vercel: securing cron jobs (CRON_SECRET)
-                <ExternalLink className="h-3.5 w-3.5" />
-              </a>
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* External cron — Hobby / backup */}
+        {/* Campaign Flow Overview */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-[var(--accent)]" />
-              <CardTitle>External cron (Hobby / backup)</CardTitle>
+              <CardTitle>How the campaign flow works</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-[var(--muted)]">
+            <ol className="list-decimal pl-5 space-y-2">
+              <li>You start a campaign → it creates one <code className="bg-[var(--surface-2)] px-1 rounded">email_sends</code> row per lead in <strong>pending_gen</strong>, plus one queue row.</li>
+              <li>cron-job.org pings <code className="bg-[var(--surface-2)] px-1 rounded">/api/jobs/campaign-worker</code> every minute.</li>
+              <li>Each call: <strong>generates</strong> AI content for up to 3 emails in parallel, then <strong>sends</strong> up to 3 ready emails via SMTP, then schedules any due follow-ups.</li>
+              <li>Open pixel + click links are added automatically; opens/clicks/replies/bounces flow back through tracking endpoints and IMAP ingest.</li>
+            </ol>
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs flex gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <p>If your cron-job.org job is paused or not configured, campaigns will look stuck. Use the <strong>Process Now</strong> button on a campaign to manually trigger a worker run (handles up to ~9 emails per click).</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* cron-job.org Setup */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-[var(--accent)]" />
+              <CardTitle>cron-job.org setup (the only step that runs your campaigns)</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="text-sm font-medium text-[var(--foreground)]">Optional: cron-job.org</p>
-                <p className="text-xs text-[var(--muted)] mt-1">
-                  If you stay on Hobby or want redundancy, create one GET job to the same worker URL with{" "}
-                  <code className="bg-[var(--surface)] px-1 rounded">Authorization: Bearer CRON_SECRET</code>.
-                </p>
-              </div>
+              <p className="text-sm text-[var(--foreground)]">
+                Open cron-job.org, click <strong>Create cronjob</strong>, and fill in the fields below exactly.
+              </p>
               <Button asChild variant="secondary" className="shrink-0">
-                <a href="https://cron-job.org/en/" target="_blank" rel="noreferrer">
-                  Open cron-job.org
+                <a href="https://console.cron-job.org/jobs/create" target="_blank" rel="noreferrer">
+                  Create cronjob
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
               </Button>
             </div>
 
-            <div className="grid gap-3 lg:grid-cols-2">
-              <div className="rounded-lg border border-[var(--border)] p-3">
-                <p className="text-xs font-semibold text-[var(--foreground)] mb-2">Form settings</p>
-                <div className="space-y-2 text-xs text-[var(--muted)]">
-                  <p><span className="text-[var(--foreground)]">URL:</span> paste the full worker URL below.</p>
-                  <p><span className="text-[var(--foreground)]">Execution schedule:</span> Custom → <code className="bg-[var(--surface-2)] px-1 rounded">{CAMPAIGN_WORKER_JOB.cron}</code></p>
-                  <p><span className="text-[var(--foreground)]">Notify me:</span> enable failure notifications.</p>
-                </div>
+            <div className="rounded-lg border border-[var(--border)] p-4 space-y-3">
+              <div>
+                <p className="text-xs uppercase tracking-wider text-[var(--muted)] mb-1">Title</p>
+                <code className="block text-sm bg-[var(--surface-2)] px-3 py-2 rounded">PixelReach Campaign Worker</code>
               </div>
 
-              <div className="rounded-lg border border-[var(--border)] p-3">
-                <p className="text-xs font-semibold text-[var(--foreground)] mb-2">Request settings</p>
-                <div className="space-y-2 text-xs text-[var(--muted)]">
-                  <p><span className="text-[var(--foreground)]">Method:</span> GET · <span className="text-[var(--foreground)]">Body:</span> empty</p>
-                  <p><span className="text-[var(--foreground)]">Header:</span> Authorization</p>
-                  <code className="block overflow-x-auto rounded bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--accent)]">
-                    Bearer your_cron_secret_token
-                  </code>
-                  <p>Must match Vercel <code className="bg-[var(--surface-2)] px-1 rounded">CRON_SECRET</code>.</p>
+              <div>
+                <p className="text-xs uppercase tracking-wider text-[var(--muted)] mb-1">URL</p>
+                <code className="block text-xs bg-[var(--surface-2)] px-3 py-2 rounded text-[var(--accent)] break-all font-mono">
+                  {workerUrl}
+                </code>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-[var(--muted)] mb-1">Execution schedule</p>
+                  <p className="text-sm">Custom → Crontab</p>
+                  <code className="block text-sm bg-[var(--surface-2)] px-3 py-1.5 rounded mt-1">* * * * *</code>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-[var(--muted)] mb-1">Timezone</p>
+                  <p className="text-sm">Your account default (UTC works fine)</p>
                 </div>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-[var(--foreground)]">Worker URL</p>
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
-                <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-[var(--foreground)]">{CAMPAIGN_WORKER_JOB.title}</p>
-                    <code className="block text-xs font-mono text-[var(--accent)] break-all">
-                      {appUrl}{CAMPAIGN_WORKER_JOB.path}
-                    </code>
-                    <p className="text-xs text-[var(--muted)]">{CAMPAIGN_WORKER_JOB.desc}</p>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap gap-2">
-                    <Badge variant="muted">{CAMPAIGN_WORKER_JOB.freq}</Badge>
-                    <code className="rounded bg-[var(--surface)] px-2 py-1 text-xs text-[var(--foreground)]">
-                      {CAMPAIGN_WORKER_JOB.cron}
-                    </code>
-                  </div>
+            <div className="rounded-lg border border-[var(--border)] p-4 space-y-3">
+              <p className="text-xs uppercase tracking-wider text-[var(--muted)]">Request → Advanced</p>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <p className="text-xs text-[var(--muted)] mb-1">Method</p>
+                  <code className="block text-sm bg-[var(--surface-2)] px-3 py-1.5 rounded">GET</code>
+                </div>
+                <div>
+                  <p className="text-xs text-[var(--muted)] mb-1">Body</p>
+                  <code className="block text-sm bg-[var(--surface-2)] px-3 py-1.5 rounded text-[var(--muted)]">(leave empty)</code>
                 </div>
               </div>
+
+              <div>
+                <p className="text-xs text-[var(--muted)] mb-1">Custom HTTP header — Name</p>
+                <code className="block text-sm bg-[var(--surface-2)] px-3 py-1.5 rounded">Authorization</code>
+              </div>
+
+              <div>
+                <p className="text-xs text-[var(--muted)] mb-1">Custom HTTP header — Value</p>
+                <code className="block text-sm bg-[var(--surface-2)] px-3 py-1.5 rounded text-[var(--accent)]">
+                  Bearer YOUR_CRON_SECRET
+                </code>
+                <p className="text-xs text-[var(--muted)] mt-2">
+                  Replace <code className="bg-[var(--surface-2)] px-1 rounded">YOUR_CRON_SECRET</code> with the exact value of <code className="bg-[var(--surface-2)] px-1 rounded">CRON_SECRET</code> from your Vercel environment variables. The word <strong>Bearer</strong> + space + token is required.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs text-[var(--muted)]">
+              <p className="text-[var(--foreground)] font-medium mb-1">Verify it works</p>
+              <p>After saving, click <strong>Test run</strong> on cron-job.org. You should see HTTP <strong>200</strong> with body like <code className="bg-[var(--surface-2)] px-1 rounded">{`{"generated":3,"sent":3,...}`}</code>. If you see <strong>401 Unauthorized</strong>, the Authorization header is wrong.</p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Cron Endpoints */}
+        {/* Endpoints reference */}
         <Card>
           <CardHeader>
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-[var(--accent)]" />
-              <CardTitle>Cron Job Endpoints</CardTitle>
-            </div>
+            <CardTitle>API endpoints reference</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-xs text-[var(--muted)]">
-              Primary path: <strong>Vercel Cron</strong> hits <code className="bg-[var(--surface-2)] px-1 rounded">/api/jobs/campaign-worker</code> using{" "}
-              <code className="bg-[var(--surface-2)] px-1 rounded">Authorization: Bearer CRON_SECRET</code>. The endpoints below are optional if you split jobs manually.
-            </p>
-            {[
-              CAMPAIGN_WORKER_JOB,
-              ...ADVANCED_JOB_ENDPOINTS,
-              { path: "/api/imap/ingest", freq: "Webhook", desc: "Receive bounce/reply data from your IMAP poller" },
-            ].map(({ path, freq, desc }) => (
-              <div key={path} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
-                <div className="flex items-center justify-between mb-1">
-                  <code className="text-xs font-mono text-[var(--accent)]">{path}</code>
-                  <Badge variant="muted">{freq}</Badge>
-                </div>
-                <p className="text-xs text-[var(--muted)]">{desc}</p>
+          <CardContent className="space-y-2">
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+              <div className="flex items-center justify-between mb-1">
+                <code className="text-xs font-mono text-[var(--accent)]">/api/jobs/campaign-worker</code>
+                <Badge variant="muted">GET · cron-job.org</Badge>
               </div>
-            ))}
+              <p className="text-xs text-[var(--muted)]">Single worker — generates + sends + schedules follow-ups (max 3 of each per call)</p>
+            </div>
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+              <div className="flex items-center justify-between mb-1">
+                <code className="text-xs font-mono text-[var(--accent)]">/api/imap/ingest</code>
+                <Badge variant="muted">POST · webhook</Badge>
+              </div>
+              <p className="text-xs text-[var(--muted)]">Receive bounce/reply data from your IMAP poller</p>
+            </div>
           </CardContent>
         </Card>
 
-        {/* Environment Variables Checklist */}
+        {/* Env vars */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -241,7 +202,9 @@ export default async function SettingsPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-[var(--muted)] mb-3">Required in your <code className="bg-[var(--surface-2)] px-1 rounded">.env.local</code> file. See <code className="bg-[var(--surface-2)] px-1 rounded">env.template</code> for reference.</p>
+            <p className="text-xs text-[var(--muted)] mb-3">
+              Required in your <code className="bg-[var(--surface-2)] px-1 rounded">.env.local</code> (development) and Vercel Project → Environment Variables (production).
+            </p>
             <div className="space-y-2">
               {[
                 "NEXT_PUBLIC_SUPABASE_URL",

@@ -41,48 +41,44 @@ Open [http://localhost:3000](http://localhost:3000)
 2. Import in [Vercel](https://vercel.com) → add the env vars above
 3. Deploy
 
-### 5. Vercel Cron (campaign worker)
+### 5. cron-job.org setup (this is what runs your campaigns)
 
-This repo includes [`vercel.json`](./vercel.json) so **production** deployments register one cron job:
+Vercel Hobby cannot run per-minute cron, so we use the free [cron-job.org](https://cron-job.org) service. Create **one** job that pings the campaign worker every minute.
 
-| Field | Value |
-|-------|--------|
-| **Path** | `/api/jobs/campaign-worker` |
-| **Schedule** | `* * * * *` (every minute, UTC) |
+1. Sign in to [console.cron-job.org](https://console.cron-job.org) → **Create cronjob**.
+2. Fill the form:
+   - **Title:** `PixelReach Campaign Worker`
+   - **URL:** `https://your-app.vercel.app/api/jobs/campaign-worker`
+   - **Execution schedule:** Custom (Crontab) → `* * * * *`
+   - **Enable job:** on
+3. Open **Request → Advanced**:
+   - **Method:** `GET`
+   - **Body:** empty
+   - Add a custom **HTTP header**:
+     - Name: `Authorization`
+     - Value: `Bearer <YOUR_CRON_SECRET>` (same value as your Vercel `CRON_SECRET` env var, with the word `Bearer ` in front)
+4. Save → click **Test run**. You should get HTTP **200** with body like `{"generated":3,"sent":3,...}`. A `401` means the header is wrong.
 
-**Required:** add **`CRON_SECRET`** (random string, 16+ characters) in **Vercel → Project → Settings → Environment Variables** (Production). Vercel sends it automatically as `Authorization: Bearer <CRON_SECRET>` when invoking cron routes ([docs](https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs)).
+That's it — once saved and enabled, it pings the worker every minute, drains pending emails, and schedules follow-ups automatically.
 
-After deploy, confirm under **Project → Settings → Cron Jobs** that the schedule is active and invocations return **200**.
-
-**Plan limits:** On **Vercel Hobby**, cron expressions that run **more than once per day** fail at deploy time. Use **Vercel Pro** for per-minute cron, or keep an external scheduler (e.g. [cron-job.org](https://cron-job.org)) calling the same URL with the same `Authorization` header.
-
-For reply and bounce tracking, keep an IMAP poller pointed at `/api/imap/ingest`. The included `hostinger/cron-imap.php` script can still be used for that if you host it somewhere with PHP IMAP enabled.
-
----
-
-### Optional: External cron (Hobby / redundancy)
-
-If you cannot use Pro yet, create **one** GET job at [cron-job.org](https://cron-job.org) to:
-
-`https://your-app.vercel.app/api/jobs/campaign-worker`
-
-with header `Authorization: Bearer <same CRON_SECRET>` and schedule `* * * * *`.
+For reply and bounce tracking, keep an IMAP poller pointed at `/api/imap/ingest`. The included `hostinger/cron-imap.php` script can be used for that if you host it somewhere with PHP IMAP enabled.
 
 ---
+
 ## Architecture
 
 ```
 User Browser → Next.js (Vercel) → Supabase Postgres
-                     ↑
-        Vercel Cron (* * * * * UTC) — Pro plan for every-minute schedules
-        → /api/jobs/campaign-worker
-          → generate next email → send one → schedule follow-ups
+                       ↑
+   cron-job.org (every 1 min, GET + Bearer CRON_SECRET)
+   → /api/jobs/campaign-worker
+       1. Generate AI content for up to 3 pending emails (parallel)
+       2. Send up to 3 ready emails via SMTP (parallel)
+       3. Schedule any due follow-ups
 
-        IMAP poller
-        → /api/imap/ingest (bounce/reply detection)
+   IMAP poller
+   → /api/imap/ingest  (bounce / reply detection)
 ```
-
-(Hobby: use external cron or upgrade to Pro — see README §5.)
 
 ---
 
@@ -103,7 +99,7 @@ Users bring their own OpenRouter API key — they pay only for what they use. An
 
 ---
 
-*Built by CodeMyPixel · Stack: Vercel + Supabase + OpenRouter (+ Vercel Cron or external cron on Hobby)*
+*Built by CodeMyPixel · Stack: Vercel Hobby + Supabase Free + OpenRouter + cron-job.org · $0/month*
 
 ## Getting Started
 

@@ -1,14 +1,14 @@
 /**
- * Campaign Worker — single self-contained cron handler.
+ * Campaign Worker — single endpoint, called every minute by cron-job.org
  *
- * Designed for Vercel Hobby (10 s function timeout):
- *   1. Unlock any queue rows stuck in "processing" > 2 min
- *   2. Generate AI content for the next pending email that is due
- *   3. Send 1 ready email
+ * Per call (≈10-25 s):
+ *   1. Unlock queue rows stuck in "processing" > 2 min (recovery)
+ *   2. Generate AI content for up to 3 due pending_gen emails (PARALLEL)
+ *   3. Send up to 3 ready emails via SMTP (PARALLEL)
  *   4. Schedule any due follow-up emails
  *
- * No HTTP sub-calls — everything runs inline so the function
- * completes in ~4–8 s.
+ * Auth: requires `Authorization: Bearer ${CRON_SECRET}` header
+ * (works for both cron-job.org and the manual "Process Now" button).
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -17,17 +17,14 @@ import { generateEmailContent, getProfileSignaturesFromUser } from "@/lib/prompt
 import { decrypt } from "@/lib/encrypt";
 import nodemailer from "nodemailer";
 
-/** Node runtime + generous cap so SMTP + OpenRouter finish under load (Pro tier uses full limit). */
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-// ─── Auth ─────────────────────────────────────────────────────────────────────
+const BATCH_SIZE = 3;
 
 function verifyCron(req: NextRequest): boolean {
   return req.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`;
 }
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 type Supabase = Awaited<ReturnType<typeof createServiceClient>>;
 
@@ -36,8 +33,6 @@ type QueueRow = {
   email_send_id: string;
   retry_count: number | null;
 };
-
-// ─── Handler ─────────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
   if (!verifyCron(req)) {
@@ -48,66 +43,25 @@ export async function GET(req: NextRequest) {
   const workerId = `w-${Date.now()}`;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://pixelreach.ai";
 
-  // ── 1. Release rows stuck in "processing" for > 2 min ──────────────────────
+  // 1. Unstick any rows that crashed mid-processing
   await supabase
     .from("email_send_queue")
     .update({ status: "pending", locked_by: null, locked_at: null })
     .eq("status", "processing")
     .lt("locked_at", new Date(Date.now() - 2 * 60 * 1000).toISOString());
 
-  // ── 2. Generate AI content for the next due pending_gen email ───────────────
-  let generated = 0;
-  try {
-    // Find the earliest-due queue row whose email still needs generation
-    const { data: dueQueue } = await supabase
-      .from("email_send_queue")
-      .select("email_send_id")
-      .eq("status", "pending")
-      .lte("scheduled_at", new Date(Date.now() + 60 * 1000).toISOString()) // 60 s lookahead
-      .order("scheduled_at", { ascending: true })
-      .limit(5);
+  // 2. Generate AI content for up to BATCH_SIZE pending_gen emails in parallel
+  const generated = await generateBatch(supabase, appUrl);
 
-    if (dueQueue && dueQueue.length > 0) {
-      const sendIds = dueQueue.map((q) => q.email_send_id);
+  // 3. Send up to BATCH_SIZE ready emails in parallel
+  const sent = await sendBatch(supabase, workerId);
 
-      const { data: toGenerate } = await supabase
-        .from("email_sends")
-        .select("id, tracking_id, campaign_id, follow_up_id, lead_id")
-        .in("id", sendIds)
-        .eq("status", "pending_gen")
-        .limit(1);
-
-      if (toGenerate && toGenerate.length > 0) {
-        const ok = await generateOne(supabase, toGenerate[0], appUrl);
-        if (ok) generated = 1;
-      }
-    }
-  } catch (err) {
-    console.error("[campaign-worker] generate step error:", err);
-  }
-
-  // ── 3. Send 1 ready email ──────────────────────────────────────────────────
-  let sent = 0;
-  try {
-    const { data: batch } = await supabase.rpc("lock_queue_batch", {
-      p_limit: 1,
-      p_locked_by: workerId,
-    });
-
-    if (batch && batch.length > 0) {
-      const ok = await sendOne(supabase, batch[0] as QueueRow);
-      if (ok) sent = 1;
-    }
-  } catch (err) {
-    console.error("[campaign-worker] send step error:", err);
-  }
-
-  // ── 4. Schedule due follow-up emails ──────────────────────────────────────
+  // 4. Schedule follow-ups
   let followupsScheduled = 0;
   try {
     followupsScheduled = await scheduleFollowups(supabase);
   } catch (err) {
-    console.error("[campaign-worker] followup step error:", err);
+    console.error("[campaign-worker] followup error:", err);
   }
 
   return NextResponse.json({ generated, sent, followupsScheduled });
@@ -117,7 +71,50 @@ export async function POST(req: NextRequest) {
   return GET(req);
 }
 
-// ─── Generate one email ──────────────────────────────────────────────────────
+// ─── Generation ──────────────────────────────────────────────────────────────
+
+async function generateBatch(supabase: Supabase, appUrl: string): Promise<number> {
+  // Find queue rows that are due AND whose email is still pending_gen
+  const { data: dueQueue } = await supabase
+    .from("email_send_queue")
+    .select("email_send_id")
+    .eq("status", "pending")
+    .lte("scheduled_at", new Date(Date.now() + 5 * 60 * 1000).toISOString())
+    .order("scheduled_at", { ascending: true })
+    .limit(BATCH_SIZE * 3);
+
+  if (!dueQueue || dueQueue.length === 0) return 0;
+
+  const sendIds = dueQueue.map((q) => q.email_send_id);
+  const { data: toGenerate } = await supabase
+    .from("email_sends")
+    .select("id, tracking_id, campaign_id, follow_up_id, lead_id")
+    .in("id", sendIds)
+    .eq("status", "pending_gen")
+    .limit(BATCH_SIZE);
+
+  if (!toGenerate || toGenerate.length === 0) return 0;
+
+  const results = await Promise.allSettled(
+    toGenerate.map((send) => generateOne(supabase, send, appUrl))
+  );
+
+  let count = 0;
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    if (r.status === "fulfilled" && r.value === true) {
+      count++;
+    } else if (r.status === "rejected") {
+      const send = toGenerate[i];
+      console.error("[generate] error", send.id, r.reason);
+      await supabase
+        .from("email_sends")
+        .update({ status: "failed", error_message: String(r.reason).slice(0, 500) })
+        .eq("id", send.id);
+    }
+  }
+  return count;
+}
 
 async function generateOne(
   supabase: Supabase,
@@ -155,19 +152,16 @@ async function generateOne(
     bodyPrompt = fu?.body_prompt ?? bodyPrompt;
   }
 
-  const senderProfiles = campaign.sender_profiles as unknown;
-  const profile = Array.isArray(senderProfiles)
-    ? ((senderProfiles[0] as Record<string, unknown> | undefined) ?? null)
-    : (senderProfiles as Record<string, unknown> | null);
+  const sp = campaign.sender_profiles as unknown;
+  const profile = Array.isArray(sp)
+    ? ((sp[0] as Record<string, unknown> | undefined) ?? null)
+    : (sp as Record<string, unknown> | null);
   if (!profile) return false;
 
   const { data: profileUser } = await supabase.auth.admin.getUserById(campaign.user_id);
   const profileWithSigs = {
     ...profile,
-    email_signatures: getProfileSignaturesFromUser(
-      profileUser?.user,
-      String(profile.id ?? "")
-    ),
+    email_signatures: getProfileSignaturesFromUser(profileUser?.user, String(profile.id ?? "")),
   };
 
   const trackingId = send.tracking_id;
@@ -195,10 +189,25 @@ async function generateOne(
   return false;
 }
 
-// ─── Send one email ───────────────────────────────────────────────────────────
+// ─── Sending ─────────────────────────────────────────────────────────────────
 
-function delay(seconds: number) {
+function delaySeconds(seconds: number) {
   return new Date(Date.now() + seconds * 1000).toISOString();
+}
+
+async function sendBatch(supabase: Supabase, workerId: string): Promise<number> {
+  const { data: batch } = await supabase.rpc("lock_queue_batch", {
+    p_limit: BATCH_SIZE,
+    p_locked_by: workerId,
+  });
+
+  if (!batch || batch.length === 0) return 0;
+
+  const results = await Promise.allSettled(
+    (batch as QueueRow[]).map((row) => sendOne(supabase, row))
+  );
+
+  return results.filter((r) => r.status === "fulfilled" && r.value === true).length;
 }
 
 async function sendOne(supabase: Supabase, queueRow: QueueRow): Promise<boolean> {
@@ -212,39 +221,24 @@ async function sendOne(supabase: Supabase, queueRow: QueueRow): Promise<boolean>
       .single();
 
     if (!emailSend) {
-      await supabase
-        .from("email_send_queue")
-        .update({ status: "failed", last_error: "Email send record not found", locked_by: null, locked_at: null })
-        .eq("id", queueRow.id);
+      await unlockQueue(supabase, queueRow.id, "failed", "Email send record not found");
       return false;
     }
 
     if (emailSend.status === "pending_gen") {
-      await supabase
-        .from("email_send_queue")
-        .update({ status: "pending", last_error: "Waiting for generation", locked_by: null, locked_at: null, scheduled_at: delay(30) })
-        .eq("id", queueRow.id);
+      await unlockQueue(supabase, queueRow.id, "pending", "Waiting for generation", delaySeconds(30));
       return false;
     }
 
     if (emailSend.status !== "ready") {
-      await supabase
-        .from("email_send_queue")
-        .update({
-          status: emailSend.status === "sent" ? "sent" : "failed",
-          last_error: emailSend.status === "sent" ? null : `Email is ${emailSend.status}`,
-          locked_by: null,
-          locked_at: null,
-        })
-        .eq("id", queueRow.id);
+      const finalStatus = emailSend.status === "sent" ? "sent" : "failed";
+      const errMsg = emailSend.status === "sent" ? null : `Email is ${emailSend.status}`;
+      await unlockQueue(supabase, queueRow.id, finalStatus, errMsg);
       return false;
     }
 
     if (!emailSend.subject || !emailSend.body_html) {
-      await supabase
-        .from("email_send_queue")
-        .update({ status: "pending", last_error: "Incomplete content", locked_by: null, locked_at: null, scheduled_at: delay(60) })
-        .eq("id", queueRow.id);
+      await unlockQueue(supabase, queueRow.id, "pending", "Incomplete content", delaySeconds(60));
       return false;
     }
 
@@ -254,10 +248,7 @@ async function sendOne(supabase: Supabase, queueRow: QueueRow): Promise<boolean>
     } | null;
 
     if (campaign?.status !== "active") {
-      await supabase
-        .from("email_send_queue")
-        .update({ status: "pending", last_error: "Campaign not active", locked_by: null, locked_at: null, scheduled_at: delay(300) })
-        .eq("id", queueRow.id);
+      await unlockQueue(supabase, queueRow.id, "pending", "Campaign not active", delaySeconds(300));
       return false;
     }
 
@@ -272,10 +263,7 @@ async function sendOne(supabase: Supabase, queueRow: QueueRow): Promise<boolean>
     } | null;
 
     if (!account) {
-      await supabase
-        .from("email_send_queue")
-        .update({ status: "failed", last_error: "No email account linked", locked_by: null, locked_at: null })
-        .eq("id", queueRow.id);
+      await unlockQueue(supabase, queueRow.id, "failed", "No email account linked");
       return false;
     }
 
@@ -284,29 +272,24 @@ async function sendOne(supabase: Supabase, queueRow: QueueRow): Promise<boolean>
     const dailySent = account.daily_reset_at === today ? account.daily_sent : 0;
 
     if (profile && dailySent >= profile.daily_limit) {
-      await supabase
-        .from("email_send_queue")
-        .update({
-          status: "pending",
-          locked_by: null,
-          locked_at: null,
-          scheduled_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        })
-        .eq("id", queueRow.id);
+      await unlockQueue(
+        supabase,
+        queueRow.id,
+        "pending",
+        "Daily limit hit",
+        new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+      );
       return false;
     }
 
     const { data: lead } = await supabase
       .from("leads")
-      .select("email, first_name, last_name")
+      .select("email")
       .eq("id", emailSend.lead_id)
       .single();
 
     if (!lead?.email) {
-      await supabase
-        .from("email_send_queue")
-        .update({ status: "failed", last_error: "Lead has no email address", locked_by: null, locked_at: null })
-        .eq("id", queueRow.id);
+      await unlockQueue(supabase, queueRow.id, "failed", "Lead has no email");
       return false;
     }
 
@@ -347,31 +330,50 @@ async function sendOne(supabase: Supabase, queueRow: QueueRow): Promise<boolean>
 
     return true;
   } catch (err) {
-    console.error("[campaign-worker] SMTP error:", err);
+    console.error("[send] SMTP error:", err);
     const retryCount = (queueRow.retry_count ?? 0) + 1;
     const shouldRetry = retryCount < 3;
     await supabase
       .from("email_send_queue")
       .update({
         status: shouldRetry ? "pending" : "failed",
-        last_error: String(err),
+        last_error: String(err).slice(0, 500),
         retry_count: retryCount,
         locked_by: null,
         locked_at: null,
-        ...(shouldRetry ? { scheduled_at: delay(60 * retryCount) } : {}),
+        ...(shouldRetry ? { scheduled_at: delaySeconds(60 * retryCount) } : {}),
       })
       .eq("id", queueRow.id);
     if (!shouldRetry) {
       await supabase
         .from("email_sends")
-        .update({ status: "failed", error_message: String(err) })
+        .update({ status: "failed", error_message: String(err).slice(0, 500) })
         .eq("id", queueRow.email_send_id);
     }
     return false;
   }
 }
 
-// ─── Schedule follow-ups ──────────────────────────────────────────────────────
+async function unlockQueue(
+  supabase: Supabase,
+  id: string,
+  status: string,
+  lastError: string | null = null,
+  scheduledAt?: string
+) {
+  await supabase
+    .from("email_send_queue")
+    .update({
+      status,
+      last_error: lastError,
+      locked_by: null,
+      locked_at: null,
+      ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
+    })
+    .eq("id", id);
+}
+
+// ─── Follow-ups ──────────────────────────────────────────────────────────────
 
 async function scheduleFollowups(supabase: Supabase): Promise<number> {
   const { data: campaigns } = await supabase
@@ -398,7 +400,7 @@ async function scheduleFollowups(supabase: Supabase): Promise<number> {
       .eq("id", campaign.sender_profile_id)
       .single();
 
-    const delaySeconds = profile?.delay_seconds ?? 60;
+    const delayBetween = profile?.delay_seconds ?? 60;
 
     const { data: accounts } = await supabase
       .from("email_accounts")
@@ -417,7 +419,7 @@ async function scheduleFollowups(supabase: Supabase): Promise<number> {
         .is("follow_up_id", null)
         .eq("status", "sent")
         .lt("sent_at", dueDate.toISOString())
-        .limit(20); // process in small batches
+        .limit(20);
 
       if (!sentAtStep || sentAtStep.length === 0) continue;
 
@@ -447,9 +449,7 @@ async function scheduleFollowups(supabase: Supabase): Promise<number> {
             follow_up_id: fu.id,
             lead_id: original.lead_id,
             email_account_id:
-              accounts && accounts.length > 0
-                ? accounts[i % accounts.length].id
-                : null,
+              accounts && accounts.length > 0 ? accounts[i % accounts.length].id : null,
             status: "pending_gen",
           })
           .select("id")
@@ -458,7 +458,7 @@ async function scheduleFollowups(supabase: Supabase): Promise<number> {
         if (newSend) {
           await supabase.from("email_send_queue").insert({
             email_send_id: newSend.id,
-            scheduled_at: new Date(Date.now() + i * delaySeconds * 1000).toISOString(),
+            scheduled_at: new Date(Date.now() + i * delayBetween * 1000).toISOString(),
             status: "pending",
           });
           scheduled++;

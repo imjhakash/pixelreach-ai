@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest, getServiceClient } from "@/lib/supabase/api-client";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+const RUNS_PER_CLICK = 3;
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -18,9 +23,7 @@ export async function POST(
     .eq("user_id", user.id)
     .single();
 
-  if (!campaign) {
-    return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
-  }
+  if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
   if (campaign.status !== "active") {
     return NextResponse.json({ error: "Campaign must be active to process" }, { status: 400 });
   }
@@ -31,17 +34,28 @@ export async function POST(
     return NextResponse.json({ error: "CRON_SECRET is not configured" }, { status: 500 });
   }
 
-  // Call the single campaign-worker (no HTTP sub-chaining)
-  const res = await fetch(`${baseUrl}/api/jobs/campaign-worker`, {
-    headers: {
-      Authorization: `Bearer ${secret}`,
-      "Cache-Control": "no-store",
-    },
-  });
+  let totalGenerated = 0;
+  let totalSent = 0;
 
-  const data = await res.json().catch(() => ({}));
-  return NextResponse.json({
-    generated: data.generated ?? 0,
-    sent: data.sent ?? 0,
-  });
+  for (let i = 0; i < RUNS_PER_CLICK; i++) {
+    try {
+      const res = await fetch(`${baseUrl}/api/jobs/campaign-worker`, {
+        headers: {
+          Authorization: `Bearer ${secret}`,
+          "Cache-Control": "no-store",
+        },
+      });
+      if (!res.ok) break;
+      const data = await res.json();
+      totalGenerated += data.generated ?? 0;
+      totalSent += data.sent ?? 0;
+      // If worker had nothing to do, stop early
+      if ((data.generated ?? 0) === 0 && (data.sent ?? 0) === 0) break;
+    } catch (err) {
+      console.error("[process-now] worker call failed:", err);
+      break;
+    }
+  }
+
+  return NextResponse.json({ generated: totalGenerated, sent: totalSent });
 }
