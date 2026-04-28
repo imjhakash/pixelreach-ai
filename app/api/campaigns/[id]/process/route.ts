@@ -31,19 +31,17 @@ export async function POST(
     return NextResponse.json({ error: "CRON_SECRET is not configured" }, { status: 500 });
   }
 
-  const headers = {
-    Authorization: `Bearer ${secret}`,
-    "Cache-Control": "no-store",
-  };
+  // Call the single campaign-worker (no HTTP sub-chaining)
+  const res = await fetch(`${baseUrl}/api/jobs/campaign-worker`, {
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      "Cache-Control": "no-store",
+    },
+  });
 
-  const genRes = await fetch(`${baseUrl}/api/jobs/generate-emails`, { headers });
-  const genData = await genRes.json().catch(() => ({}));
-
-  const sendRes = await fetch(`${baseUrl}/api/jobs/process-send-queue`, { headers });
-  const sendData = await sendRes.json().catch(() => ({}));
-
+  const data = await res.json().catch(() => ({}));
   return NextResponse.json({
-    generated: genData.generated ?? 0,
-    sent: sendData.sent ?? 0,
+    generated: data.generated ?? 0,
+    sent: data.sent ?? 0,
   });
 }
