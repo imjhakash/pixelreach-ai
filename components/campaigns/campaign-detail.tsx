@@ -3,8 +3,9 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Send, MailOpen, MousePointerClick, AlertTriangle,
+  Send, MailOpen, MousePointerClick, AlertTriangle, Mail, Server,
   Play, Pause, Clock, CheckCircle, XCircle, RefreshCw, RotateCcw,
+  Activity, Zap, MessageSquare,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,19 +26,51 @@ export interface EmailSendRow {
   leads?: { first_name: string | null; last_name: string | null; email: string; company: string | null } | null;
 }
 
+export interface AccountStatus {
+  id: string;
+  label: string;
+  from_email: string;
+  smtp_host: string;
+  is_active: boolean;
+  daily_limit: number;
+  daily_sent: number;
+  daily_reset_at: string;
+}
+
+export interface TrackingEvent {
+  id: string;
+  event_type: string;
+  created_at: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  metadata: { url?: string } | null;
+  email_sends?: {
+    leads?: { first_name: string | null; last_name: string | null; email: string } | null;
+  } | null;
+}
+
+export interface LiveCounts {
+  sent: number;
+  failed: number;
+  pending: number;
+  bounced: number;
+  opened: number;
+  clicked: number;
+  replied: number;
+}
+
 interface CampaignDetailProps {
   campaign: {
     id: string;
     name: string;
     status: string;
-    sent_count: number;
-    open_count: number;
-    click_count: number;
-    bounce_count: number;
     total_leads: number;
     follow_ups?: { id: string; step: number; delay_days: number }[];
   };
   recentSends: EmailSendRow[];
+  liveCounts: LiveCounts;
+  accounts: AccountStatus[];
+  events: TrackingEvent[];
 }
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
@@ -49,10 +82,19 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
   pending:     <Clock className="h-4 w-4 text-[var(--muted)]" />,
 };
 
+const EVENT_META: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
+  sent:    { icon: <Send className="h-3.5 w-3.5" />,            color: "text-[var(--accent)]",  label: "Sent" },
+  opened:  { icon: <MailOpen className="h-3.5 w-3.5" />,        color: "text-[var(--success)]", label: "Opened" },
+  clicked: { icon: <MousePointerClick className="h-3.5 w-3.5" />, color: "text-[var(--warning)]", label: "Clicked" },
+  replied: { icon: <MessageSquare className="h-3.5 w-3.5" />,   color: "text-[var(--accent)]",  label: "Replied" },
+  bounced: { icon: <AlertTriangle className="h-3.5 w-3.5" />,   color: "text-[var(--danger)]",  label: "Bounced" },
+  unsubscribed: { icon: <XCircle className="h-3.5 w-3.5" />,    color: "text-[var(--muted)]",   label: "Unsubscribed" },
+};
+
 const LOG_TABS = ["All", "Failed", "Sent", "Pending"] as const;
 type LogTab = typeof LOG_TABS[number];
 
-export function CampaignDetail({ campaign, recentSends }: CampaignDetailProps) {
+export function CampaignDetail({ campaign, recentSends, liveCounts, accounts, events }: CampaignDetailProps) {
   const router = useRouter();
   const [status, setStatus] = useState(campaign.status);
   const [toggling, setToggling] = useState(false);
@@ -62,19 +104,17 @@ export function CampaignDetail({ campaign, recentSends }: CampaignDetailProps) {
   const [retryingAll, setRetryingAll] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
 
-  const openRate = campaign.sent_count > 0
-    ? Math.round((campaign.open_count / campaign.sent_count) * 100) : 0;
-  const clickRate = campaign.sent_count > 0
-    ? Math.round((campaign.click_count / campaign.sent_count) * 100) : 0;
-  const bounceRate = campaign.sent_count > 0
-    ? Math.round((campaign.bounce_count / campaign.sent_count) * 100) : 0;
-  const progress = campaign.total_leads > 0
-    ? Math.round((campaign.sent_count / campaign.total_leads) * 100) : 0;
+  const sentCount = liveCounts.sent;
+  const openRate = sentCount > 0 ? Math.round((liveCounts.opened / sentCount) * 100) : 0;
+  const clickRate = sentCount > 0 ? Math.round((liveCounts.clicked / sentCount) * 100) : 0;
+  const bounceRate = sentCount > 0 ? Math.round((liveCounts.bounced / sentCount) * 100) : 0;
+  const progress = campaign.total_leads > 0 ? Math.round((sentCount / campaign.total_leads) * 100) : 0;
 
-  const failedCount = useMemo(
-    () => recentSends.filter((s) => s.status === "failed").length,
-    [recentSends]
-  );
+  // Capacity calculation across all accounts
+  const totalDailyCap = accounts.filter((a) => a.is_active).reduce((s, a) => s + a.daily_limit, 0);
+  const totalDailySent = accounts.filter((a) => a.is_active).reduce((s, a) => s + a.daily_sent, 0);
+  const capacityHit = totalDailyCap > 0 && totalDailySent >= totalDailyCap;
+  const capacityRemaining = Math.max(0, totalDailyCap - totalDailySent);
 
   const filteredSends = useMemo(() => {
     switch (activeTab) {
@@ -84,6 +124,13 @@ export function CampaignDetail({ campaign, recentSends }: CampaignDetailProps) {
       default:        return recentSends;
     }
   }, [recentSends, activeTab]);
+
+  const tabTotals: Record<LogTab, number> = {
+    All:     liveCounts.sent + liveCounts.failed + liveCounts.pending + liveCounts.bounced,
+    Failed:  liveCounts.failed,
+    Sent:    liveCounts.sent,
+    Pending: liveCounts.pending,
+  };
 
   async function processNow() {
     setProcessing(true);
@@ -182,13 +229,13 @@ export function CampaignDetail({ campaign, recentSends }: CampaignDetailProps) {
         )}
       </div>
 
-      {/* Stats */}
+      {/* Stats — using live counts */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "Sent",    value: campaign.sent_count,                             icon: Send,               color: "text-[var(--accent)]",   bg: "bg-[var(--accent)]/10" },
-          { label: "Opened",  value: `${campaign.open_count} (${openRate}%)`,         icon: MailOpen,           color: "text-[var(--success)]",  bg: "bg-[var(--success)]/10" },
-          { label: "Clicked", value: `${campaign.click_count} (${clickRate}%)`,       icon: MousePointerClick,  color: "text-[var(--warning)]",  bg: "bg-[var(--warning)]/10" },
-          { label: "Bounced", value: `${campaign.bounce_count} (${bounceRate}%)`,     icon: AlertTriangle,      color: "text-[var(--danger)]",   bg: "bg-[var(--danger)]/10" },
+          { label: "Sent",    value: sentCount,                                    icon: Send,              color: "text-[var(--accent)]",  bg: "bg-[var(--accent)]/10" },
+          { label: "Opened",  value: `${liveCounts.opened} (${openRate}%)`,         icon: MailOpen,          color: "text-[var(--success)]", bg: "bg-[var(--success)]/10" },
+          { label: "Clicked", value: `${liveCounts.clicked} (${clickRate}%)`,       icon: MousePointerClick, color: "text-[var(--warning)]", bg: "bg-[var(--warning)]/10" },
+          { label: "Bounced", value: `${liveCounts.bounced} (${bounceRate}%)`,      icon: AlertTriangle,     color: "text-[var(--danger)]",  bg: "bg-[var(--danger)]/10" },
         ].map(({ label, value, icon: Icon, color, bg }) => (
           <Card key={label}>
             <CardContent className="p-5">
@@ -209,7 +256,7 @@ export function CampaignDetail({ campaign, recentSends }: CampaignDetailProps) {
         <CardContent className="p-5">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-medium text-[var(--foreground)]">Send Progress</p>
-            <p className="text-sm text-[var(--muted)]">{campaign.sent_count} / {campaign.total_leads} leads</p>
+            <p className="text-sm text-[var(--muted)]">{sentCount} / {campaign.total_leads} leads</p>
           </div>
           <div className="h-2 w-full rounded-full bg-[var(--surface-2)] overflow-hidden">
             <div
@@ -217,7 +264,82 @@ export function CampaignDetail({ campaign, recentSends }: CampaignDetailProps) {
               style={{ width: `${progress}%` }}
             />
           </div>
-          <p className="text-xs text-[var(--muted)] mt-1">{progress}% complete</p>
+          <p className="text-xs text-[var(--muted)] mt-1">{progress}% complete · {liveCounts.pending} pending · {liveCounts.failed} failed</p>
+        </CardContent>
+      </Card>
+
+      {/* Sending Capacity (Email Accounts daily limits) */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-[var(--warning)]" />
+              <CardTitle>Sending Capacity</CardTitle>
+            </div>
+            <div className="text-xs">
+              {capacityHit ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-[var(--danger)]/10 px-2 py-0.5 font-medium text-[var(--danger)]">
+                  <AlertTriangle className="h-3 w-3" />
+                  Daily cap reached — resumes after midnight UTC
+                </span>
+              ) : (
+                <span className="text-[var(--muted)]">
+                  <span className="font-medium text-[var(--foreground)]">{capacityRemaining}</span> remaining today across {accounts.filter((a) => a.is_active).length} account{accounts.filter((a) => a.is_active).length === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {accounts.length === 0 ? (
+            <p className="text-sm text-[var(--muted)]">No email accounts attached to this sender profile.</p>
+          ) : (
+            <div className="space-y-3">
+              {accounts.map((a) => {
+                const pct = a.daily_limit > 0 ? Math.min(100, Math.round((a.daily_sent / a.daily_limit) * 100)) : 0;
+                const hit = a.daily_sent >= a.daily_limit;
+                return (
+                  <div key={a.id} className="rounded-lg border border-[var(--border)] p-3">
+                    <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Mail className="h-4 w-4 text-[var(--muted)] shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-[var(--foreground)] truncate">
+                            {a.label}
+                            {!a.is_active && (
+                              <span className="ml-2 text-xs font-normal text-[var(--muted)]">(inactive)</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-[var(--muted)] truncate flex items-center gap-1">
+                            <span>{a.from_email}</span>
+                            <Server className="h-3 w-3" />
+                            <span>{a.smtp_host}</span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-sm font-bold ${hit ? "text-[var(--danger)]" : "text-[var(--foreground)]"}`}>
+                          {a.daily_sent} / {a.daily_limit}
+                        </p>
+                        <p className="text-xs text-[var(--muted)]">today</p>
+                      </div>
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-[var(--surface-2)] overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          hit ? "bg-[var(--danger)]" : pct > 80 ? "bg-[var(--warning)]" : "bg-[var(--success)]"
+                        }`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+              <p className="text-xs text-[var(--muted)] mt-2">
+                Daily limit is set on the sender profile (default 50). Increase it in <span className="font-medium">Sender Profiles → Edit</span> if your provider allows more (e.g. Hostinger allows ~1000/day).
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -227,15 +349,17 @@ export function CampaignDetail({ campaign, recentSends }: CampaignDetailProps) {
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
               <CardTitle>Email Logs</CardTitle>
-              <span className="text-xs text-[var(--muted)]">{recentSends.length} records</span>
-              {failedCount > 0 && (
+              <span className="text-xs text-[var(--muted)]">
+                showing {recentSends.length} of {tabTotals.All}
+              </span>
+              {liveCounts.failed > 0 && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-[var(--danger)]/10 px-2 py-0.5 text-xs font-medium text-[var(--danger)]">
                   <XCircle className="h-3 w-3" />
-                  {failedCount} failed
+                  {liveCounts.failed} failed
                 </span>
               )}
             </div>
-            {failedCount > 0 && (
+            {liveCounts.failed > 0 && (
               <Button
                 variant="secondary"
                 size="sm"
@@ -244,19 +368,15 @@ export function CampaignDetail({ campaign, recentSends }: CampaignDetailProps) {
                 className="text-[var(--danger)] border-[var(--danger)]/30 hover:bg-[var(--danger)]/10"
               >
                 <RotateCcw className={`h-4 w-4 ${retryingAll ? "animate-spin" : ""}`} />
-                {retryingAll ? "Retrying…" : `Retry All Failed (${failedCount})`}
+                {retryingAll ? "Retrying…" : `Retry All Failed (${liveCounts.failed})`}
               </Button>
             )}
           </div>
 
-          {/* Tabs */}
+          {/* Tabs — counts are now from DB totals, not loaded sample */}
           <div className="flex gap-1 mt-4 border-b border-[var(--border)]">
             {LOG_TABS.map((tab) => {
-              const count =
-                tab === "All"     ? recentSends.length :
-                tab === "Failed"  ? recentSends.filter((s) => s.status === "failed").length :
-                tab === "Sent"    ? recentSends.filter((s) => s.status === "sent").length :
-                recentSends.filter((s) => ["pending_gen", "ready", "pending"].includes(s.status)).length;
+              const count = tabTotals[tab];
               return (
                 <button
                   key={tab}
@@ -376,6 +496,73 @@ export function CampaignDetail({ campaign, recentSends }: CampaignDetailProps) {
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Tracking Activity */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-[var(--accent)]" />
+              <CardTitle>Tracking Activity</CardTitle>
+              <span className="text-xs text-[var(--muted)]">{events.length} recent events</span>
+            </div>
+            <p className="text-xs text-[var(--muted)] max-w-md text-right">
+              Open tracking via 1×1 pixel. Click tracking via redirect. Note: Apple Mail / Gmail image proxies may inflate opens.
+            </p>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {events.length === 0 ? (
+            <p className="text-center text-sm text-[var(--muted)] py-10">No events yet</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--border)] bg-[var(--surface-2)]">
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Event</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Lead</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">When</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">IP</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Client / URL</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border)]">
+                  {events.map((e) => {
+                    const meta = EVENT_META[e.event_type] ?? { icon: null, color: "text-[var(--muted)]", label: e.event_type };
+                    const lead = e.email_sends?.leads;
+                    const leadName = lead ? ([lead.first_name, lead.last_name].filter(Boolean).join(" ") || lead.email) : "—";
+                    const url = e.metadata?.url;
+                    return (
+                      <tr key={e.id} className="hover:bg-[var(--surface-2)]/50 transition-colors">
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${meta.color}`}>
+                            {meta.icon}
+                            {meta.label}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-[var(--foreground)]">{leadName}</td>
+                        <td className="px-4 py-3 text-xs text-[var(--muted)] whitespace-nowrap">
+                          {formatDistanceToNow(new Date(e.created_at), { addSuffix: true })}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-[var(--muted)] font-mono">{e.ip_address ?? "—"}</td>
+                        <td className="px-4 py-3 text-xs text-[var(--muted)] max-w-[300px] truncate">
+                          {url ? (
+                            <a href={url} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] hover:underline">
+                              {url}
+                            </a>
+                          ) : (
+                            e.user_agent ?? "—"
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
